@@ -120,6 +120,9 @@ pub mod msg {
          * Settle winnings for an account
          */
         CollectWinnings {},
+        CollectionWinningRound {
+            round_id: Uint128,
+        },
         DistributeFund {
             dev_wallet_list: Vec<WalletInfo>,
         },
@@ -150,6 +153,10 @@ pub mod msg {
             round_id: Uint128,
             start_after: Option<Addr>,
             limit: Option<u32>,
+        },
+        MyPendingRewardRound {
+            round_id: Uint128,
+            player: Addr,
         },
     }
 }

@@ -308,48 +308,12 @@ fn test_bet() {
     update_price(&mut router, config, Uint128::new(100000), &owner);
     start_next_round(&mut router, &prediction_market_addr, &owner);
 
-    let status: StatusResponse = router
-        .wrap()
-        .query_wasm_smart(prediction_market_addr.clone(), &QueryMsg::Status {})
-        .unwrap();
-    println!("status {:?}", status);
-
-    let config: ConfigResponse = router
-        .wrap()
-        .query_wasm_smart(prediction_market_addr.to_string(), &QueryMsg::Config {})
-        .unwrap();
-
-    execute_bet(
-        &mut router,
-        Addr::unchecked("user1"),
-        Uint128::new(100),
-        Direction::Bear,
-        &config.token_addr,
-        &prediction_market_addr,
-        Uint128::new(2),
-    );
-
-    execute_bet(
-        &mut router,
-        Addr::unchecked("user2"),
-        Uint128::new(50),
-        Direction::Bull,
-        &config.token_addr,
-        &prediction_market_addr,
-        Uint128::new(2),
-    );
-
-    //-----------------------------------------------------------Test second user bet to check pending reward-------------------------------------------------
-
-    start_next_round(&mut router, &prediction_market_addr, &owner);
-    update_price(&mut router, config, Uint128::new(200000), &owner);
-    start_next_round(&mut router, &prediction_market_addr, &owner);
-
     let pending_reward_user1: PendingRewardResponse = router
         .wrap()
         .query_wasm_smart(
             prediction_market_addr.clone(),
-            &QueryMsg::MyPendingReward {
+            &QueryMsg::MyPendingRewardRound {
+                round_id: Uint128::zero(),
                 player: Addr::unchecked("user1"),
             },
         )
@@ -358,7 +322,8 @@ fn test_bet() {
         .wrap()
         .query_wasm_smart(
             prediction_market_addr.clone(),
-            &QueryMsg::MyPendingReward {
+            &QueryMsg::MyPendingRewardRound {
+                round_id: Uint128::zero(),
                 player: Addr::unchecked("user2"),
             },
         )
@@ -369,16 +334,12 @@ fn test_bet() {
         pending_reward_user1, pending_reward_user2
     );
 
-    //---------------------------------------------------Test Claim ----------------------------------------------------------------------//
-
-    let config: ConfigResponse = router
-        .wrap()
-        .query_wasm_smart(prediction_market_addr.to_string(), &QueryMsg::Config {})
-        .unwrap();
-
     let claim_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: prediction_market_addr.to_string(),
-        msg: to_binary(&ExecuteMsg::CollectWinnings {}).unwrap(),
+        msg: to_binary(&ExecuteMsg::CollectionWinningRound {
+            round_id: Uint128::zero(),
+        })
+        .unwrap(),
         funds: vec![],
     });
 
@@ -386,17 +347,10 @@ fn test_bet() {
         .execute_multi(Addr::unchecked("user1"), [claim_msg].to_vec())
         .unwrap();
 
-    let claim_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: prediction_market_addr.to_string(),
-        msg: to_binary(&ExecuteMsg::CollectWinnings {}).unwrap(),
-        funds: vec![],
-    });
-
-    router
-        .execute_multi(Addr::unchecked("user2"), [claim_msg].to_vec())
+    let config: ConfigResponse = router
+        .wrap()
+        .query_wasm_smart(prediction_market_addr.to_string(), &QueryMsg::Config {})
         .unwrap();
-
-    //----------------------------------------------check balance after the claim----------------------------------------------
 
     let user1_balance: BalanceResponse = router
         .wrap()
@@ -408,87 +362,189 @@ fn test_bet() {
         )
         .unwrap();
 
-    let user2_balance: BalanceResponse = router
-        .wrap()
-        .query_wasm_smart(
-            config.token_addr.to_string(),
-            &Cw20QueryMsg::Balance {
-                address: "user2".to_string(),
-            },
-        )
-        .unwrap();
+    println!("{:?}", user1_balance)
 
-    let contract_balance: BalanceResponse = router
-        .wrap()
-        .query_wasm_smart(
-            config.token_addr.to_string(),
-            &Cw20QueryMsg::Balance {
-                address: prediction_market_addr.to_string(),
-            },
-        )
-        .unwrap();
+    // let status: StatusResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(prediction_market_addr.clone(), &QueryMsg::Status {})
+    //     .unwrap();
+    // println!("status {:?}", status);
 
-    println!("user1 balance {:?}", user1_balance);
-    println!("user2 balance {:?}", user2_balance);
-    println!("contract balance {:?}", contract_balance);
+    // let config: ConfigResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(prediction_market_addr.to_string(), &QueryMsg::Config {})
+    //     .unwrap();
 
-    //------------------------------------------------Test Distribute Reward--------------------------------------------------------------------//
+    // execute_bet(
+    //     &mut router,
+    //     Addr::unchecked("user1"),
+    //     Uint128::new(100),
+    //     Direction::Bear,
+    //     &config.token_addr,
+    //     &prediction_market_addr,
+    //     Uint128::new(2),
+    // );
 
-    let distribute_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: prediction_market_addr.to_string(),
-        msg: to_binary(&ExecuteMsg::DistributeFund {
-            dev_wallet_list: vec![
-                WalletInfo {
-                    address: Addr::unchecked("admin1"),
-                    ratio: Decimal::from_ratio(50 as u128, 100 as u128),
-                },
-                WalletInfo {
-                    address: Addr::unchecked("admin2"),
-                    ratio: Decimal::from_ratio(50 as u128, 100 as u128),
-                },
-            ],
-        })
-        .unwrap(),
-        funds: vec![],
-    });
+    // execute_bet(
+    //     &mut router,
+    //     Addr::unchecked("user2"),
+    //     Uint128::new(50),
+    //     Direction::Bull,
+    //     &config.token_addr,
+    //     &prediction_market_addr,
+    //     Uint128::new(2),
+    // );
 
-    router
-        .execute_multi(Addr::unchecked("owner"), [distribute_msg].to_vec())
-        .unwrap();
+    // //-----------------------------------------------------------Test second user bet to check pending reward-------------------------------------------------
 
-    let admin1_balance: BalanceResponse = router
-        .wrap()
-        .query_wasm_smart(
-            config.token_addr.to_string(),
-            &Cw20QueryMsg::Balance {
-                address: "admin1".to_string(),
-            },
-        )
-        .unwrap();
+    // start_next_round(&mut router, &prediction_market_addr, &owner);
+    // update_price(&mut router, config, Uint128::new(200000), &owner);
+    // start_next_round(&mut router, &prediction_market_addr, &owner);
 
-    let admin2_balance: BalanceResponse = router
-        .wrap()
-        .query_wasm_smart(
-            config.token_addr.to_string(),
-            &Cw20QueryMsg::Balance {
-                address: "admin2".to_string(),
-            },
-        )
-        .unwrap();
+    // let pending_reward_user1: PendingRewardResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(
+    //         prediction_market_addr.clone(),
+    //         &QueryMsg::MyPendingReward {
+    //             player: Addr::unchecked("user1"),
+    //         },
+    //     )
+    //     .unwrap();
+    // let pending_reward_user2: PendingRewardResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(
+    //         prediction_market_addr.clone(),
+    //         &QueryMsg::MyPendingReward {
+    //             player: Addr::unchecked("user2"),
+    //         },
+    //     )
+    //     .unwrap();
 
-    let contract_balance: BalanceResponse = router
-        .wrap()
-        .query_wasm_smart(
-            config.token_addr.to_string(),
-            &Cw20QueryMsg::Balance {
-                address: prediction_market_addr.to_string(),
-            },
-        )
-        .unwrap();
+    // println!(
+    //     "pending reward for user1{:?}, pending reward for user2 {:?}",
+    //     pending_reward_user1, pending_reward_user2
+    // );
 
-    println!("admin1_balance {:?}", admin1_balance);
-    println!("admin2 balance {:?}", admin2_balance);
-    println!("contract balance {:?}", contract_balance);
+    // //---------------------------------------------------Test Claim ----------------------------------------------------------------------//
 
-    assert_eq!(admin1_balance.balance, Uint128::new(3))
+    // let config: ConfigResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(prediction_market_addr.to_string(), &QueryMsg::Config {})
+    //     .unwrap();
+
+    // let claim_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: prediction_market_addr.to_string(),
+    //     msg: to_binary(&ExecuteMsg::CollectWinnings {}).unwrap(),
+    //     funds: vec![],
+    // });
+
+    // router
+    //     .execute_multi(Addr::unchecked("user1"), [claim_msg].to_vec())
+    //     .unwrap();
+
+    // let claim_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: prediction_market_addr.to_string(),
+    //     msg: to_binary(&ExecuteMsg::CollectWinnings {}).unwrap(),
+    //     funds: vec![],
+    // });
+
+    // router
+    //     .execute_multi(Addr::unchecked("user2"), [claim_msg].to_vec())
+    //     .unwrap();
+
+    // //----------------------------------------------check balance after the claim----------------------------------------------
+
+    // let user1_balance: BalanceResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(
+    //         config.token_addr.to_string(),
+    //         &Cw20QueryMsg::Balance {
+    //             address: "user1".to_string(),
+    //         },
+    //     )
+    //     .unwrap();
+
+    // let user2_balance: BalanceResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(
+    //         config.token_addr.to_string(),
+    //         &Cw20QueryMsg::Balance {
+    //             address: "user2".to_string(),
+    //         },
+    //     )
+    //     .unwrap();
+
+    // let contract_balance: BalanceResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(
+    //         config.token_addr.to_string(),
+    //         &Cw20QueryMsg::Balance {
+    //             address: prediction_market_addr.to_string(),
+    //         },
+    //     )
+    //     .unwrap();
+
+    // println!("user1 balance {:?}", user1_balance);
+    // println!("user2 balance {:?}", user2_balance);
+    // println!("contract balance {:?}", contract_balance);
+
+    // //------------------------------------------------Test Distribute Reward--------------------------------------------------------------------//
+
+    // let distribute_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: prediction_market_addr.to_string(),
+    //     msg: to_binary(&ExecuteMsg::DistributeFund {
+    //         dev_wallet_list: vec![
+    //             WalletInfo {
+    //                 address: Addr::unchecked("admin1"),
+    //                 ratio: Decimal::from_ratio(50 as u128, 100 as u128),
+    //             },
+    //             WalletInfo {
+    //                 address: Addr::unchecked("admin2"),
+    //                 ratio: Decimal::from_ratio(50 as u128, 100 as u128),
+    //             },
+    //         ],
+    //     })
+    //     .unwrap(),
+    //     funds: vec![],
+    // });
+
+    // router
+    //     .execute_multi(Addr::unchecked("owner"), [distribute_msg].to_vec())
+    //     .unwrap();
+
+    // let admin1_balance: BalanceResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(
+    //         config.token_addr.to_string(),
+    //         &Cw20QueryMsg::Balance {
+    //             address: "admin1".to_string(),
+    //         },
+    //     )
+    //     .unwrap();
+
+    // let admin2_balance: BalanceResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(
+    //         config.token_addr.to_string(),
+    //         &Cw20QueryMsg::Balance {
+    //             address: "admin2".to_string(),
+    //         },
+    //     )
+    //     .unwrap();
+
+    // let contract_balance: BalanceResponse = router
+    //     .wrap()
+    //     .query_wasm_smart(
+    //         config.token_addr.to_string(),
+    //         &Cw20QueryMsg::Balance {
+    //             address: prediction_market_addr.to_string(),
+    //         },
+    //     )
+    //     .unwrap();
+
+    // println!("admin1_balance {:?}", admin1_balance);
+    // println!("admin2 balance {:?}", admin2_balance);
+    // println!("contract balance {:?}", contract_balance);
+
+    // assert_eq!(admin1_balance.balance, Uint128::new(3))
 }

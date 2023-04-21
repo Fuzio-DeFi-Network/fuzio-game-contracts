@@ -76,6 +76,9 @@ pub fn execute(
         }
         ExecuteMsg::CloseRound {} => execute_close_round(deps, env),
         ExecuteMsg::CollectWinnings {} => execute_collect_winnings(deps, info),
+        ExecuteMsg::CollectionWinningRound { round_id } => {
+            execute_collect_winning_round(deps, info, round_id)
+        }
         ExecuteMsg::Hault {} => execute_update_hault(deps, info, env, true),
         ExecuteMsg::Resume {} => execute_update_hault(deps, info, env, false),
         ExecuteMsg::DistributeFund { dev_wallet_list } => {
@@ -130,6 +133,86 @@ fn execute_collect_winnings(deps: DepsMut, info: MessageInfo) -> Result<Response
     let my_game_list = query_my_games_without_limit(deps.as_ref(), info.sender.clone())?;
 
     for game in my_game_list.my_game_list {
+        let round_id = game.round_id;
+        let round = ROUNDS.load(deps.storage, round_id.u128())?;
+
+        let pool_shares = round.bear_amount + round.bull_amount;
+        let bet_info_key = bet_info_key(round_id.u128(), &info.sender);
+
+        bet_info_storage().remove(deps.storage, bet_info_key.clone())?;
+
+        if round.bear_amount == Uint128::zero() || round.bull_amount == Uint128::zero() {
+            winnings += game.amount;
+        } else {
+            let round_winnings = match round.winner {
+                Some(Direction::Bull) => {
+                    /* Only claimable once */
+                    match game.direction {
+                        Direction::Bull => {
+                            let won_shares = game.amount;
+                            pool_shares.multiply_ratio(won_shares, round.bull_amount)
+                        }
+                        Direction::Bear => Uint128::zero(),
+                    }
+                }
+                Some(Direction::Bear) => {
+                    /* Only claimable once */
+                    match game.direction {
+                        Direction::Bull => Uint128::zero(),
+                        Direction::Bear => {
+                            let won_shares = game.amount;
+                            pool_shares.multiply_ratio(won_shares, round.bear_amount)
+                        }
+                    }
+                }
+                None => {
+                    /* Only claimable once */
+                    game.amount
+                }
+            };
+
+            /* Count it up */
+            winnings += round_winnings;
+        }
+    }
+
+    if winnings == Uint128::zero() {
+        return Err(ContractError::Std(StdError::generic_err(
+            "Nothing to claim",
+        )));
+    }
+
+    let msg_send_winnings: CosmosMsg;
+
+    msg_send_winnings = get_cw20_transfer_msg(&config.token_addr, &info.sender, winnings)?;
+
+    Ok(resp
+        .add_message(msg_send_winnings)
+        .add_attribute("action", "collect-winnings")
+        .add_attribute("amount", winnings))
+}
+
+fn execute_collect_winning_round(
+    deps: DepsMut,
+    info: MessageInfo,
+    round_id: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut winnings = Uint128::zero();
+    let resp = Response::new();
+
+    // let no_duplicate_rounds: HashSet<u128> =
+    //     HashSet::from_iter(rounds.iter().cloned());
+    let mut my_game_list: Vec<BetInfo> = Vec::new();
+
+    let bet_info_key_round = bet_info_key(round_id.u128(), &info.sender);
+    let game = bet_info_storage().may_load(deps.storage, bet_info_key_round)?;
+    match game {
+        Some(_game) => my_game_list.push(_game),
+        None => {}
+    }
+
+    for game in my_game_list {
         let round_id = game.round_id;
         let round = ROUNDS.load(deps.storage, round_id.u128())?;
 
@@ -427,6 +510,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             start_after,
             limit,
         } => to_binary(&query_users_per_round(deps, round_id, start_after, limit)?),
+        QueryMsg::MyPendingRewardRound { round_id, player } => {
+            to_binary(&query_my_pending_reward_round(deps, round_id, player)?)
+        }
     }
 }
 
@@ -555,6 +641,72 @@ pub fn query_my_pending_reward(deps: Deps, player: Addr) -> StdResult<PendingRew
     let mut winnings = Uint128::zero();
 
     for game in my_game_list.my_game_list {
+        let round_id = game.round_id;
+        let round = ROUNDS.may_load(deps.storage, round_id.u128())?;
+
+        if round.is_none() {
+            continue;
+        }
+        let round = round.unwrap();
+
+        let pool_shares = round.bear_amount + round.bull_amount;
+
+        if round.bear_amount == Uint128::zero() || round.bull_amount == Uint128::zero() {
+            winnings += game.amount;
+        } else {
+            let round_winnings = match round.winner {
+                Some(Direction::Bull) => {
+                    /* Only claimable once */
+                    match game.direction {
+                        Direction::Bull => {
+                            let won_shares = game.amount;
+                            pool_shares.multiply_ratio(won_shares, round.bull_amount)
+                        }
+                        Direction::Bear => Uint128::zero(),
+                    }
+                }
+                Some(Direction::Bear) => {
+                    /* Only claimable once */
+                    match game.direction {
+                        Direction::Bull => Uint128::zero(),
+                        Direction::Bear => {
+                            let won_shares = game.amount;
+                            pool_shares.multiply_ratio(won_shares, round.bear_amount)
+                        }
+                    }
+                }
+                None => {
+                    /* Only claimable once */
+                    game.amount
+                }
+            };
+
+            /* Count it up */
+            winnings += round_winnings;
+        }
+    }
+
+    Ok(PendingRewardResponse {
+        pending_reward: winnings,
+    })
+}
+
+pub fn query_my_pending_reward_round(
+    deps: Deps,
+    round_id: Uint128,
+    player: Addr,
+) -> StdResult<PendingRewardResponse> {
+    let mut winnings = Uint128::zero();
+    let mut my_game_list: Vec<BetInfo> = Vec::new();
+
+    let bet_info_key = bet_info_key(round_id.u128(), &player);
+    let game = bet_info_storage().may_load(deps.storage, bet_info_key)?;
+    match game {
+        Some(_game) => my_game_list.push(_game),
+        None => {}
+    }
+
+    for game in my_game_list {
         let round_id = game.round_id;
         let round = ROUNDS.may_load(deps.storage, round_id.u128())?;
 
