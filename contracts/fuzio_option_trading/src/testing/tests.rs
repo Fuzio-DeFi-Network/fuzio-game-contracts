@@ -23,7 +23,7 @@ use std::convert::TryInto;
 // use std::ops::Add;
 
 use crate::contract::query_my_games;
-use crate::state::{MyGameResponse, PendingRewardResponse, RoundUsersResponse};
+use crate::state::{ClaimInfoResponse, MyGameResponse, PendingRewardResponse, RoundUsersResponse};
 
 fn mock_app() -> App {
     App::default()
@@ -336,10 +336,7 @@ fn test_bet() {
 
     let claim_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: prediction_market_addr.to_string(),
-        msg: to_binary(&ExecuteMsg::CollectionWinningRound {
-            round_id: Uint128::zero(),
-        })
-        .unwrap(),
+        msg: to_binary(&ExecuteMsg::CollectWinnings {}).unwrap(),
         funds: vec![],
     });
 
@@ -362,8 +359,30 @@ fn test_bet() {
         )
         .unwrap();
 
-    println!("{:?}", user1_balance)
+    let claim_info: ClaimInfoResponse = router
+        .wrap()
+        .query_wasm_smart(
+            prediction_market_addr.to_string(),
+            &QueryMsg::GetClaimInfoPerRound {
+                round_id: Uint128::zero(),
+                start_after: None,
+                limit: None,
+            },
+        )
+        .unwrap();
 
+    let claim_info: ClaimInfoResponse = router
+        .wrap()
+        .query_wasm_smart(
+            prediction_market_addr.to_string(),
+            &QueryMsg::GetClaimInfoByUser {
+                player: Addr::unchecked("user1".to_string()),
+                start_after: Some(Uint128::zero()),
+                limit: None,
+            },
+        )
+        .unwrap();
+    println!("claim_info, {:?}", claim_info)
     // let status: StatusResponse = router
     //     .wrap()
     //     .query_wasm_smart(prediction_market_addr.clone(), &QueryMsg::Status {})

@@ -62,6 +62,49 @@ pub fn bet_info_storage<'a>() -> IndexedMap<'a, BetInfoKey, BetInfo, BetInfoIndi
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+pub struct ClaimInfo {
+    pub player: Addr,
+    pub round_id: Uint128,
+    pub claimed_amount: Uint128,
+}
+
+/// Primary key for claiminfo: (round_id, player)
+pub type ClaimInfoKey = (u128, Addr);
+/// Convenience bid key constructor
+pub fn claim_info_key(round_id: u128, player: &Addr) -> ClaimInfoKey {
+    (round_id, player.clone())
+}
+
+/// Defines incides for accessing bids
+pub struct ClaimInfoIndicies<'a> {
+    pub player: MultiIndex<'a, Addr, ClaimInfo, ClaimInfoKey>,
+    pub round_id: MultiIndex<'a, u128, ClaimInfo, ClaimInfoKey>,
+}
+
+impl<'a> IndexList<ClaimInfo> for ClaimInfoIndicies<'a> {
+    fn get_indexes(&'_ self) -> Box<dyn Iterator<Item = &'_ dyn Index<ClaimInfo>> + '_> {
+        let v: Vec<&dyn Index<ClaimInfo>> = vec![&self.player, &self.round_id];
+        Box::new(v.into_iter())
+    }
+}
+
+pub fn claim_info_storage<'a>() -> IndexedMap<'a, ClaimInfoKey, ClaimInfo, ClaimInfoIndicies<'a>> {
+    let indexes = ClaimInfoIndicies {
+        player: MultiIndex::new(
+            |_pk: &[u8], d: &ClaimInfo| d.player.clone(),
+            "claim_info",
+            "claim_info_collection",
+        ),
+        round_id: MultiIndex::new(
+            |_pk: &[u8], d: &ClaimInfo| d.round_id.u128(),
+            "claim_info",
+            "claim_round_id",
+        ),
+    };
+    IndexedMap::new("claim_info", indexes)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub struct MyGameResponse {
     pub my_game_list: Vec<BetInfo>,
@@ -71,6 +114,12 @@ pub struct MyGameResponse {
 #[serde(rename_all = "snake_case")]
 pub struct RoundUsersResponse {
     pub round_users: Vec<BetInfo>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct ClaimInfoResponse {
+    pub claim_info: Vec<ClaimInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]

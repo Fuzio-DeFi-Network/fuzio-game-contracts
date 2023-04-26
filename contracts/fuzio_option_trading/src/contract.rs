@@ -1,8 +1,8 @@
 use crate::error::ContractError;
 use crate::state::{
-    bet_info_key, bet_info_storage, BetInfo, MyGameResponse, PendingRewardResponse,
-    RoundUsersResponse, ACCUMULATED_FEE, CONFIG, IS_HAULTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID,
-    ROUNDS,
+    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, BetInfo, ClaimInfo,
+    ClaimInfoResponse, MyGameResponse, PendingRewardResponse, RoundUsersResponse, ACCUMULATED_FEE,
+    CONFIG, IS_HAULTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS,
 };
 use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use fuzio_bet::fuzio_option_trading::response::ConfigResponse;
@@ -74,7 +74,7 @@ pub fn execute(
         ExecuteMsg::BetBull { round_id, amount } => {
             execute_bet(deps, info, env, round_id, Direction::Bull, amount)
         }
-        ExecuteMsg::CloseRound {} => execute_close_round(deps, env),
+        ExecuteMsg::CloseRound {} => execute_close_round(deps, info, env),
         ExecuteMsg::CollectWinnings {} => execute_collect_winnings(deps, info),
         ExecuteMsg::CollectionWinningRound { round_id } => {
             execute_collect_winning_round(deps, info, round_id)
@@ -141,8 +141,21 @@ fn execute_collect_winnings(deps: DepsMut, info: MessageInfo) -> Result<Response
 
         bet_info_storage().remove(deps.storage, bet_info_key.clone())?;
 
+        let claim_info_key = claim_info_key(round_id.u128(), &info.sender);
+
         if round.bear_amount == Uint128::zero() || round.bull_amount == Uint128::zero() {
             winnings += game.amount;
+            if game.amount > Uint128::zero() {
+                claim_info_storage().save(
+                    deps.storage,
+                    claim_info_key,
+                    &ClaimInfo {
+                        player: info.sender.clone(),
+                        round_id,
+                        claimed_amount: winnings,
+                    },
+                )?;
+            }
         } else {
             let round_winnings = match round.winner {
                 Some(Direction::Bull) => {
@@ -173,6 +186,18 @@ fn execute_collect_winnings(deps: DepsMut, info: MessageInfo) -> Result<Response
 
             /* Count it up */
             winnings += round_winnings;
+
+            if round_winnings > Uint128::zero() {
+                claim_info_storage().save(
+                    deps.storage,
+                    claim_info_key,
+                    &ClaimInfo {
+                        player: info.sender.clone(),
+                        round_id,
+                        claimed_amount: winnings,
+                    },
+                )?;
+            }
         }
     }
 
@@ -221,8 +246,21 @@ fn execute_collect_winning_round(
 
         bet_info_storage().remove(deps.storage, bet_info_key.clone())?;
 
+        let claim_info_key = claim_info_key(round_id.u128(), &info.sender);
+
         if round.bear_amount == Uint128::zero() || round.bull_amount == Uint128::zero() {
             winnings += game.amount;
+            if game.amount > Uint128::zero() {
+                claim_info_storage().save(
+                    deps.storage,
+                    claim_info_key,
+                    &ClaimInfo {
+                        player: info.sender.clone(),
+                        round_id,
+                        claimed_amount: winnings,
+                    },
+                )?;
+            }
         } else {
             let round_winnings = match round.winner {
                 Some(Direction::Bull) => {
@@ -253,6 +291,17 @@ fn execute_collect_winning_round(
 
             /* Count it up */
             winnings += round_winnings;
+            if round_winnings > Uint128::zero() {
+                claim_info_storage().save(
+                    deps.storage,
+                    claim_info_key,
+                    &ClaimInfo {
+                        player: info.sender.clone(),
+                        round_id,
+                        claimed_amount: winnings,
+                    },
+                )?;
+            }
         }
     }
 
@@ -386,8 +435,13 @@ fn execute_bet(
     Ok(resp)
 }
 
-fn execute_close_round(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+fn execute_close_round(
+    deps: DepsMut,
+    info: MessageInfo,
+    env: Env,
+) -> Result<Response, ContractError> {
     assert_not_haulted(deps.as_ref())?;
+    assert_is_admin(deps.as_ref(), info, env.clone())?;
     let now = env.block.time;
     let config = CONFIG.load(deps.storage)?;
     let mut resp: Response = Response::new();
@@ -491,10 +545,10 @@ fn execute_update_config(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
-        QueryMsg::Status {} => to_binary(&query_status(deps)?),
+        QueryMsg::Status {} => to_binary(&query_status(deps, env)?),
         QueryMsg::MyCurrentPosition { address } => {
             to_binary(&query_my_current_position(deps, address)?)
         }
@@ -513,6 +567,21 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::MyPendingRewardRound { round_id, player } => {
             to_binary(&query_my_pending_reward_round(deps, round_id, player)?)
         }
+        QueryMsg::GetClaimInfoPerRound {
+            round_id,
+            start_after,
+            limit,
+        } => to_binary(&query_claim_info_per_round(
+            deps,
+            round_id,
+            start_after,
+            limit,
+        )?),
+        QueryMsg::GetClaimInfoByUser {
+            player,
+            start_after,
+            limit,
+        } => to_binary(&query_claim_info_by_user(deps, player, start_after, limit)?),
     }
 }
 
@@ -568,13 +637,15 @@ fn query_my_current_position(deps: Deps, address: String) -> StdResult<MyCurrent
     })
 }
 
-fn query_status(deps: Deps) -> StdResult<StatusResponse> {
+fn query_status(deps: Deps, env: Env) -> StdResult<StatusResponse> {
     let live_round = LIVE_ROUND.may_load(deps.storage)?;
     let bidding_round = NEXT_ROUND.may_load(deps.storage)?;
+    let current_time = env.block.time;
 
     Ok(StatusResponse {
         bidding_round,
         live_round,
+        current_time,
     })
 }
 
@@ -634,6 +705,60 @@ pub fn query_users_per_round(
         .collect::<StdResult<Vec<_>>>()?;
 
     Ok(RoundUsersResponse { round_users })
+}
+
+pub fn query_claim_info_per_round(
+    deps: Deps,
+    round_id: Uint128,
+    start_after: Option<Addr>,
+    limit: Option<u32>,
+) -> StdResult<ClaimInfoResponse> {
+    let limit = limit.unwrap_or(DEFAULT_QUERY_LIMIT).min(MAX_QUERY_LIMIT) as usize;
+
+    let start = if let Some(start) = start_after {
+        let player = start;
+        Some(Bound::exclusive(bet_info_key(round_id.u128(), &player)))
+    } else {
+        None
+    };
+
+    let claim_info = claim_info_storage()
+        .idx
+        .round_id
+        .prefix(round_id.u128())
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|res| res.map(|item| item.1))
+        .collect::<StdResult<Vec<_>>>()?;
+
+    Ok(ClaimInfoResponse { claim_info })
+}
+
+pub fn query_claim_info_by_user(
+    deps: Deps,
+    player: Addr,
+    start_after: Option<Uint128>,
+    limit: Option<u32>,
+) -> StdResult<ClaimInfoResponse> {
+    let limit = limit.unwrap_or(DEFAULT_QUERY_LIMIT).min(MAX_QUERY_LIMIT) as usize;
+
+    let start = if let Some(start) = start_after {
+        let round_id = start;
+        Some(Bound::exclusive(bet_info_key(round_id.u128(), &player)))
+    } else {
+        None
+    };
+
+    let claim_info = claim_info_storage()
+        .idx
+        .player
+        .prefix(player)
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|res| res.map(|item| item.1))
+        .collect::<StdResult<Vec<_>>>()?;
+
+    Ok(ClaimInfoResponse { claim_info })
 }
 
 pub fn query_my_pending_reward(deps: Deps, player: Addr) -> StdResult<PendingRewardResponse> {

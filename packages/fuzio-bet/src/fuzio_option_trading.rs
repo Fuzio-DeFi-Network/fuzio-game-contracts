@@ -158,6 +158,16 @@ pub mod msg {
             round_id: Uint128,
             player: Addr,
         },
+        GetClaimInfoPerRound {
+            round_id: Uint128,
+            start_after: Option<Addr>,
+            limit: Option<u32>,
+        },
+        GetClaimInfoByUser {
+            player: Addr,
+            start_after: Option<Uint128>,
+            limit: Option<u32>,
+        },
     }
 }
 
@@ -173,6 +183,7 @@ pub mod response {
     pub struct StatusResponse {
         pub bidding_round: Option<NextRound>,
         pub live_round: Option<LiveRound>,
+        pub current_time: Timestamp,
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
