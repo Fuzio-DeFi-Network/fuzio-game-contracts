@@ -1,19 +1,14 @@
+use cosmwasm_schema::cw_serde;
+use cosmwasm_schema::QueryResponses;
 use cosmwasm_std::{Addr, Decimal, Timestamp, Uint128};
-use partial_derive::Partial;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 pub const FEE_PRECISION: u128 = 100u128;
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub enum Direction {
     Bull,
     Bear,
 }
-
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct MigrateMsg {}
 
 impl ToString for Direction {
     fn to_string(&self) -> String {
@@ -25,8 +20,7 @@ impl ToString for Direction {
     }
 }
 
-#[derive(Partial, Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 /**
  * Parameters which are mutable by a governance vote
  */
@@ -39,8 +33,8 @@ pub struct Config {
     pub gaming_fee: Uint128,
     pub token_addr: Addr,
 }
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+
+#[cw_serde]
 pub struct NextRound {
     pub id: Uint128,
     pub bid_time: Timestamp,
@@ -50,8 +44,7 @@ pub struct NextRound {
     pub bear_amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct LiveRound {
     pub id: Uint128,
     pub bid_time: Timestamp,
@@ -62,8 +55,7 @@ pub struct LiveRound {
     pub bear_amount: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[cw_serde]
 pub struct FinishedRound {
     pub id: Uint128,
     pub bid_time: Timestamp,
@@ -79,15 +71,16 @@ pub struct FinishedRound {
 pub mod msg {
     use super::*;
 
-    #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    #[cw_serde]
+    pub struct MigrateMsg {}
+    
+    #[cw_serde]
     pub struct InstantiateMsg {
         /* Mutable params */
         pub config: Config,
     }
 
-    #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    #[cw_serde]
     pub enum ExecuteMsg {
         /**
          * Update part of or all of the mutable config params
@@ -130,39 +123,40 @@ pub mod msg {
         Resume {},
     }
 
-    #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    #[cw_serde]
+    #[derive(QueryResponses)]
     pub enum QueryMsg {
+        #[returns(ConfigResponse)]
         Config {},
+        #[returns(StatusResponse)]
         Status {},
-        MyCurrentPosition {
-            address: String,
-        },
-        FinishedRound {
-            round_id: Uint128,
-        },
+        #[returns(MyCurrentPositionResponse)]
+        MyCurrentPosition { address: String },
+        #[returns(RoundResponse)]
+        FinishedRound { round_id: Uint128 },
+        #[returns(MyGameResponse)]
         MyGameList {
             player: Addr,
             start_after: Option<Uint128>,
             limit: Option<u32>,
         },
-        MyPendingReward {
-            player: Addr,
-        },
+        #[returns(PendingRewardResponse)]
+        MyPendingReward { player: Addr },
+        #[returns(RoundUsersResponse)]
         GetUsersPerRound {
             round_id: Uint128,
             start_after: Option<Addr>,
             limit: Option<u32>,
         },
-        MyPendingRewardRound {
-            round_id: Uint128,
-            player: Addr,
-        },
+        #[returns(PendingRewardResponse)]
+        MyPendingRewardRound { round_id: Uint128, player: Addr },
+        #[returns(ClaimInfoResponse)]
         GetClaimInfoPerRound {
             round_id: Uint128,
             start_after: Option<Addr>,
             limit: Option<u32>,
         },
+        #[returns(ClaimInfoResponse)]
         GetClaimInfoByUser {
             player: Addr,
             start_after: Option<Uint128>,
@@ -171,33 +165,68 @@ pub mod msg {
     }
 }
 
-pub mod response {
-    use super::*;
+pub type ConfigResponse = Config;
 
-    pub type ConfigResponse = Config;
+pub type RoundResponse = FinishedRound;
 
-    pub type RoundResponse = FinishedRound;
-
-    #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
-    pub struct StatusResponse {
-        pub bidding_round: Option<NextRound>,
-        pub live_round: Option<LiveRound>,
-        pub current_time: Timestamp,
-    }
-
-    #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
-    pub struct MyCurrentPositionResponse {
-        pub live_bear_amount: Uint128,
-        pub live_bull_amount: Uint128,
-        pub next_bear_amount: Uint128,
-        pub next_bull_amount: Uint128,
-    }
+#[cw_serde]
+pub struct StatusResponse {
+    pub bidding_round: Option<NextRound>,
+    pub live_round: Option<LiveRound>,
+    pub current_time: Timestamp,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema)]
+#[cw_serde]
+pub struct MyCurrentPositionResponse {
+    pub live_bear_amount: Uint128,
+    pub live_bull_amount: Uint128,
+    pub next_bear_amount: Uint128,
+    pub next_bull_amount: Uint128,
+}
+
+#[cw_serde]
+pub struct MyGameResponse {
+    pub my_game_list: Vec<BetInfo>,
+}
+
+#[cw_serde]
+pub struct RoundUsersResponse {
+    pub round_users: Vec<BetInfo>,
+}
+
+#[cw_serde]
+pub struct ClaimInfoResponse {
+    pub claim_info: Vec<ClaimInfo>,
+}
+
+#[cw_serde]
+pub struct PendingRewardResponse {
+    pub pending_reward: Uint128,
+}
+
+#[cw_serde]
 pub struct WalletInfo {
     pub address: Addr,
     pub ratio: Decimal,
 }
+
+#[cw_serde]
+pub struct ClaimInfo {
+    pub player: Addr,
+    pub round_id: Uint128,
+    pub claimed_amount: Uint128,
+}
+
+/// Primary key for claiminfo: (round_id, player)
+pub type ClaimInfoKey = (u128, Addr);
+
+#[cw_serde]
+pub struct BetInfo {
+    pub player: Addr,
+    pub round_id: Uint128,
+    pub amount: Uint128,
+    pub direction: Direction,
+}
+
+/// Primary key for betinfo: (round_id, player)
+pub type BetInfoKey = (u128, Addr);

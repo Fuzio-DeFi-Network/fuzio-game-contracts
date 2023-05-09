@@ -1,12 +1,11 @@
 use crate::error::ContractError;
 use crate::state::{
-    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, BetInfo, ClaimInfo,
-    ClaimInfoResponse, MyGameResponse, PendingRewardResponse, RoundUsersResponse, ACCUMULATED_FEE,
+    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ACCUMULATED_FEE,
     CONFIG, IS_HAULTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS,
 };
-use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use fuzio_bet::fuzio_option_trading::response::ConfigResponse;
-use fuzio_bet::fuzio_option_trading::{Config, Direction, PartialConfig};
+use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
+use fuzio_bet::fuzio_option_trading::{ConfigResponse, ClaimInfo, BetInfo, MyGameResponse, RoundUsersResponse, ClaimInfoResponse, PendingRewardResponse};
+use fuzio_bet::fuzio_option_trading::{Config, Direction};
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
@@ -17,9 +16,9 @@ use cosmwasm_std::{
 use cw20::Cw20ExecuteMsg;
 use cw_storage_plus::Bound;
 use fuzio_bet::fast_oracle::msg::QueryMsg as FastOracleQueryMsg;
-use fuzio_bet::fuzio_option_trading::response::{MyCurrentPositionResponse, StatusResponse};
+use fuzio_bet::fuzio_option_trading::{MyCurrentPositionResponse, StatusResponse};
 use fuzio_bet::fuzio_option_trading::{
-    FinishedRound, LiveRound, MigrateMsg, NextRound, WalletInfo, FEE_PRECISION,
+    FinishedRound, LiveRound, NextRound, WalletInfo, FEE_PRECISION,
 };
 
 // Query limits
