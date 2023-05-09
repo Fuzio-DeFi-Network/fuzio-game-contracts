@@ -1,9 +1,7 @@
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::Addr;
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
-use fuzio_bet::fuzio_option_trading::Direction;
+use fuzio_bet::fuzio_option_trading::{BetInfoKey, BetInfo, ClaimInfoKey, ClaimInfo};
 use fuzio_bet::fuzio_option_trading::{Config, FinishedRound, LiveRound, NextRound};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 pub const IS_HAULTED: Item<bool> = Item::new("is_haulted");
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -17,16 +15,6 @@ pub const ACCUMULATED_FEE: Item<u128> = Item::new("accumulated_fee");
 
 pub const ROUNDS: Map<u128, FinishedRound> = Map::new("rounds");
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct BetInfo {
-    pub player: Addr,
-    pub round_id: Uint128,
-    pub amount: Uint128,
-    pub direction: Direction,
-}
-
-/// Primary key for betinfo: (round_id, player)
-pub type BetInfoKey = (u128, Addr);
 /// Convenience bid key constructor
 pub fn bet_info_key(round_id: u128, player: &Addr) -> BetInfoKey {
     (round_id, player.clone())
@@ -60,16 +48,6 @@ pub fn bet_info_storage<'a>() -> IndexedMap<'a, BetInfoKey, BetInfo, BetInfoIndi
     };
     IndexedMap::new("bet_info", indexes)
 }
-
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-pub struct ClaimInfo {
-    pub player: Addr,
-    pub round_id: Uint128,
-    pub claimed_amount: Uint128,
-}
-
-/// Primary key for claiminfo: (round_id, player)
-pub type ClaimInfoKey = (u128, Addr);
 /// Convenience bid key constructor
 pub fn claim_info_key(round_id: u128, player: &Addr) -> ClaimInfoKey {
     (round_id, player.clone())
@@ -102,28 +80,4 @@ pub fn claim_info_storage<'a>() -> IndexedMap<'a, ClaimInfoKey, ClaimInfo, Claim
         ),
     };
     IndexedMap::new("claim_info", indexes)
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct MyGameResponse {
-    pub my_game_list: Vec<BetInfo>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct RoundUsersResponse {
-    pub round_users: Vec<BetInfo>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct ClaimInfoResponse {
-    pub claim_info: Vec<ClaimInfo>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub struct PendingRewardResponse {
-    pub pending_reward: Uint128,
 }

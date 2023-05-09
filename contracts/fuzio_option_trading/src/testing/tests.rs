@@ -1,9 +1,9 @@
 // use cosmwasm_std::testing::mock_env;
 use cosmwasm_std::{
-    coins, to_binary, Addr, Binary, BlockInfo, Coin, CosmosMsg, Decimal, Empty, Response,
+    to_binary, Addr, Binary, BlockInfo, CosmosMsg, Empty, Response,
     StdResult, Timestamp, Uint128, WasmMsg,
 };
-use cw20::{AllowanceResponse, BalanceResponse, Cw20Coin, Cw20ExecuteMsg, Cw20QueryMsg};
+use cw20::{BalanceResponse, Cw20Coin, Cw20ExecuteMsg, Cw20QueryMsg};
 use cw_multi_test::{App, Contract, ContractWrapper, Executor};
 use fuzio_bet::fast_oracle::{
     msg::ExecuteMsg as FastOracleExecuteMsg, msg::InstantiateMsg as FastOracleInstantiateMsg,
@@ -11,19 +11,16 @@ use fuzio_bet::fast_oracle::{
 };
 use fuzio_bet::fuzio_option_trading::{
     msg::{ExecuteMsg, InstantiateMsg, QueryMsg},
-    response::{ConfigResponse, StatusResponse},
+    ConfigResponse,
     Config,
 };
-use fuzio_bet::fuzio_option_trading::{Direction, FinishedRound, WalletInfo};
+use fuzio_bet::fuzio_option_trading::{Direction, RoundUsersResponse, PendingRewardResponse, ClaimInfoResponse};
 
 use cw20_base::msg::InstantiateMsg as Cw20InstantiateMsg;
 
 // use std::borrow::BorrowMut;
 use std::convert::TryInto;
 // use std::ops::Add;
-
-use crate::contract::query_my_games;
-use crate::state::{ClaimInfoResponse, MyGameResponse, PendingRewardResponse, RoundUsersResponse};
 
 fn mock_app() -> App {
     App::default()
@@ -349,7 +346,7 @@ fn test_bet() {
         .query_wasm_smart(prediction_market_addr.to_string(), &QueryMsg::Config {})
         .unwrap();
 
-    let user1_balance: BalanceResponse = router
+    let _user1_balance: BalanceResponse = router
         .wrap()
         .query_wasm_smart(
             config.token_addr.to_string(),
@@ -359,7 +356,7 @@ fn test_bet() {
         )
         .unwrap();
 
-    let claim_info: ClaimInfoResponse = router
+    let _claim_info: ClaimInfoResponse = router
         .wrap()
         .query_wasm_smart(
             prediction_market_addr.to_string(),

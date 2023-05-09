@@ -1,25 +1,24 @@
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use cosmwasm_schema::cw_serde;
+use cosmwasm_schema::QueryResponses;
 
 pub mod msg {
     use cosmwasm_std::{Addr, Uint128};
 
     use super::*;
 
-    #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    #[cw_serde]
     pub struct InstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    #[cw_serde]
     pub enum ExecuteMsg {
         Update { price: Uint128 },
         Owner { owner: Addr },
     }
 
-    #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
-    #[serde(rename_all = "snake_case")]
+    #[cw_serde]
+    #[derive(QueryResponses)]
     pub enum QueryMsg {
+        #[returns(Uint128)]
         Price {},
     }
 }
