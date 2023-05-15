@@ -1,3 +1,4 @@
+use cw0::PaymentError;
 use thiserror::Error;
 
 use cosmwasm_std::StdError;
@@ -6,6 +7,15 @@ use cosmwasm_std::StdError;
 pub enum ContractError {
     #[error("{0}")]
     Std(#[from] StdError),
+
+    #[error("{0}")]
+    Payment(#[from] PaymentError),
+    
+    #[error("Wrong denom sent")]
+    InvalidFunds {},
+
+    #[error("Not enough funds for the bet sent")]
+    NotEnoughFunds {},
 
     #[error("Unauthorized")]
     Unauthorized {},

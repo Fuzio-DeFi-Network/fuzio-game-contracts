@@ -29,9 +29,8 @@ pub struct Config {
     pub next_round_seconds: Uint128,
     pub fast_oracle_addr: Addr,
     pub minimum_bet: Uint128,
-    pub burn_fee: Uint128,
     pub gaming_fee: Uint128,
-    pub token_addr: Addr,
+    pub token_denom: String,
 }
 
 #[cw_serde]
