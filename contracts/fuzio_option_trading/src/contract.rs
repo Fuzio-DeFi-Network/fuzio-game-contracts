@@ -15,9 +15,8 @@ use fuzio_bet::fuzio_option_trading::{Config, Direction};
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     coins, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Event,
-    MessageInfo, Order, QueryRequest, Response, StdError, StdResult, Uint128, WasmMsg, WasmQuery,
+    MessageInfo, Order, QueryRequest, Response, StdError, StdResult, Uint128, WasmQuery,
 };
-use cw20::Cw20ExecuteMsg;
 use cw_storage_plus::Bound;
 use fuzio_bet::fast_oracle::msg::QueryMsg as FastOracleQueryMsg;
 use fuzio_bet::fuzio_option_trading::{
@@ -1008,67 +1007,6 @@ fn assert_is_admin(deps: Deps, info: MessageInfo, env: Env) -> StdResult<bool> {
     }
 
     Ok(true)
-}
-
-pub fn get_cw20_transfer_msg(
-    token_addr: &Addr,
-    recipient: &Addr,
-    amount: Uint128,
-) -> StdResult<CosmosMsg> {
-    let transfer_cw20_msg = Cw20ExecuteMsg::Transfer {
-        recipient: recipient.into(),
-        amount,
-    };
-
-    let exec_cw20_transfer_msg = WasmMsg::Execute {
-        contract_addr: token_addr.into(),
-        msg: to_binary(&transfer_cw20_msg)?,
-        funds: vec![],
-    };
-
-    let cw20_transfer_msg: CosmosMsg = exec_cw20_transfer_msg.into();
-    Ok(cw20_transfer_msg)
-}
-
-pub fn get_cw20_transfer_from_msg(
-    token_addr: &Addr,
-    owner: &Addr,
-    recipient: &Addr,
-    amount: Uint128,
-) -> StdResult<CosmosMsg> {
-    let transfer_cw20_msg = Cw20ExecuteMsg::TransferFrom {
-        owner: owner.into(),
-        recipient: recipient.into(),
-        amount,
-    };
-
-    let exec_cw20_transfer_msg = WasmMsg::Execute {
-        contract_addr: token_addr.into(),
-        msg: to_binary(&transfer_cw20_msg)?,
-        funds: vec![],
-    };
-
-    let cw20_transfer_msg: CosmosMsg = exec_cw20_transfer_msg.into();
-    Ok(cw20_transfer_msg)
-}
-
-pub fn get_cw20_burn_from_msg(
-    token_addr: &Addr,
-    owner: &Addr,
-    amount: Uint128,
-) -> StdResult<CosmosMsg> {
-    let burn_cw20_msg = Cw20ExecuteMsg::BurnFrom {
-        owner: owner.into(),
-        amount,
-    };
-    let exec_cw20_burn_msg = WasmMsg::Execute {
-        contract_addr: token_addr.into(),
-        msg: to_binary(&burn_cw20_msg)?,
-        funds: vec![],
-    };
-
-    let cw20_burn_msg: CosmosMsg = exec_cw20_burn_msg.into();
-    Ok(cw20_burn_msg)
 }
 
 pub fn get_bank_transfer_to_msg(
