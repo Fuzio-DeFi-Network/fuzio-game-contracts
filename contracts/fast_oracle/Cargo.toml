@@ -45,6 +45,7 @@ serde = { version = "1.0.163", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.40" }
 fuzio-bet = { path = "../../packages/fuzio-bet" }
 cw20 = "1.0.1"
+cw-ownable = "0.5.1"
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.2.5" }
