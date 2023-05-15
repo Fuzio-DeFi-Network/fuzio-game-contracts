@@ -1,25 +1,28 @@
 use crate::error::ContractError;
 use crate::state::{
-    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ACCUMULATED_FEE,
-    CONFIG, IS_HAULTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS,
+    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ACCUMULATED_FEE, CONFIG,
+    IS_HAULTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS,
 };
-use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
-use fuzio_bet::fuzio_option_trading::{ConfigResponse, ClaimInfo, BetInfo, MyGameResponse, RoundUsersResponse, ClaimInfoResponse, PendingRewardResponse};
+use cw0::one_coin;
+use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
+use fuzio_bet::fuzio_option_trading::{
+    BetInfo, ClaimInfo, ClaimInfoResponse, ConfigResponse, MyGameResponse, PendingRewardResponse,
+    RoundUsersResponse,
+};
 use fuzio_bet::fuzio_option_trading::{Config, Direction};
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_binary, Addr, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Event, MessageInfo,
-    Order, QueryRequest, Response, StdError, StdResult, Uint128, WasmMsg, WasmQuery,
+    coins, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Event,
+    MessageInfo, Order, QueryRequest, Response, StdError, StdResult, Uint128, WasmQuery,
 };
-use cw20::Cw20ExecuteMsg;
 use cw_storage_plus::Bound;
 use fuzio_bet::fast_oracle::msg::QueryMsg as FastOracleQueryMsg;
-use fuzio_bet::fuzio_option_trading::{MyCurrentPositionResponse, StatusResponse};
 use fuzio_bet::fuzio_option_trading::{
     FinishedRound, LiveRound, NextRound, WalletInfo, FEE_PRECISION,
 };
+use fuzio_bet::fuzio_option_trading::{MyCurrentPositionResponse, StatusResponse};
 
 // Query limits
 const DEFAULT_QUERY_LIMIT: u32 = 10;
@@ -98,7 +101,7 @@ fn execute_distribute_fund(
     let collected_fee = ACCUMULATED_FEE.load(deps.storage)?;
 
     let mut total_ratio = Decimal::zero();
-    let mut messages: Vec<CosmosMsg> = Vec::new();
+    let mut messages = Vec::new();
     for dev_wallet in dev_wallet_list.clone() {
         total_ratio = total_ratio + dev_wallet.ratio;
     }
@@ -108,11 +111,13 @@ fn execute_distribute_fund(
     }
 
     for dev_wallet in dev_wallet_list {
-        let token_transfer_msg = get_cw20_transfer_msg(
-            &config.token_addr,
-            &dev_wallet.address,
-            Uint128::new(collected_fee) * dev_wallet.ratio,
-        )?;
+        let token_transfer_msg = BankMsg::Send {
+            to_address: dev_wallet.address.to_string(),
+            amount: coins(
+                (Uint128::new(collected_fee) * dev_wallet.ratio).u128(),
+                &config.token_denom,
+            ),
+        };
         messages.push(token_transfer_msg)
     }
 
@@ -206,9 +211,10 @@ fn execute_collect_winnings(deps: DepsMut, info: MessageInfo) -> Result<Response
         )));
     }
 
-    let msg_send_winnings: CosmosMsg;
-
-    msg_send_winnings = get_cw20_transfer_msg(&config.token_addr, &info.sender, winnings)?;
+    let msg_send_winnings = BankMsg::Send {
+        to_address: info.sender.to_string(),
+        amount: coins(winnings.u128(), &config.token_denom),
+    };
 
     Ok(resp
         .add_message(msg_send_winnings)
@@ -310,9 +316,10 @@ fn execute_collect_winning_round(
         )));
     }
 
-    let msg_send_winnings: CosmosMsg;
-
-    msg_send_winnings = get_cw20_transfer_msg(&config.token_addr, &info.sender, winnings)?;
+    let msg_send_winnings = BankMsg::Send {
+        to_address: info.sender.to_string(),
+        amount: coins(winnings.u128(), &config.token_denom),
+    };
 
     Ok(resp
         .add_message(msg_send_winnings)
@@ -334,6 +341,16 @@ fn execute_bet(
     let mut resp = Response::new();
     let config = CONFIG.load(deps.storage)?;
 
+    let funds_sent = one_coin(&info)?;
+
+    if funds_sent.denom != config.token_denom {
+        return Err(ContractError::InvalidFunds {});
+    }
+
+    if funds_sent.amount != gross {
+        return Err(ContractError::NotEnoughFunds {});
+    }
+
     if env.block.time > bet_round.open_time {
         return Err(ContractError::Std(StdError::generic_err(format!(
             "Round {} stopped accepting bids {} second(s) ago; the next round has not yet begun",
@@ -342,20 +359,13 @@ fn execute_bet(
         ))));
     }
 
-    let burn_fee = compute_burn_fee(deps.as_ref(), gross)?;
-
-    if burn_fee > Uint128::zero() {
-        let msg_burn_fee = get_cw20_burn_from_msg(&config.token_addr, &info.sender, burn_fee)?;
-        resp = resp.add_message(msg_burn_fee);
-    }
-
     let staker_fee = compute_gaming_fee(deps.as_ref(), gross)?;
     ACCUMULATED_FEE.update(deps.storage, |fee_before| -> Result<u128, StdError> {
         Ok(fee_before + staker_fee.u128())
     })?;
 
-    /* Deduct open + burn fee from the gross amount */
-    let bet_amt = gross - staker_fee - burn_fee;
+    /* Deduct open from the gross amount */
+    let bet_amt = gross - staker_fee;
 
     let bet_info_key = bet_info_key(round_id.u128(), &info.sender.clone());
 
@@ -416,20 +426,6 @@ fn execute_bet(
             ]));
         }
     }
-
-    let contract_addrss = env.contract.address;
-
-    let transfer_from_msg = get_cw20_transfer_from_msg(
-        &config.token_addr,
-        &info.sender,
-        &contract_addrss,
-        gross - burn_fee,
-    )?;
-
-    let mut messages: Vec<CosmosMsg> = Vec::new();
-    messages.push(transfer_from_msg);
-
-    resp = resp.add_messages(messages);
 
     Ok(resp)
 }
@@ -905,14 +901,6 @@ fn assert_is_current_round(deps: Deps, round_id: Uint128) -> StdResult<NextRound
     Ok(open_round)
 }
 
-fn compute_burn_fee(deps: Deps, gross: Uint128) -> StdResult<Uint128> {
-    let burn_fee = CONFIG.load(deps.storage)?.burn_fee;
-
-    burn_fee
-        .checked_multiply_ratio(gross, FEE_PRECISION * 100)
-        .map_err(|e| StdError::generic_err(e.to_string()))
-}
-
 fn compute_gaming_fee(deps: Deps, gross: Uint128) -> StdResult<Uint128> {
     let staker_fee = CONFIG.load(deps.storage)?.gaming_fee;
 
@@ -1019,67 +1007,6 @@ fn assert_is_admin(deps: Deps, info: MessageInfo, env: Env) -> StdResult<bool> {
     }
 
     Ok(true)
-}
-
-pub fn get_cw20_transfer_msg(
-    token_addr: &Addr,
-    recipient: &Addr,
-    amount: Uint128,
-) -> StdResult<CosmosMsg> {
-    let transfer_cw20_msg = Cw20ExecuteMsg::Transfer {
-        recipient: recipient.into(),
-        amount,
-    };
-
-    let exec_cw20_transfer_msg = WasmMsg::Execute {
-        contract_addr: token_addr.into(),
-        msg: to_binary(&transfer_cw20_msg)?,
-        funds: vec![],
-    };
-
-    let cw20_transfer_msg: CosmosMsg = exec_cw20_transfer_msg.into();
-    Ok(cw20_transfer_msg)
-}
-
-pub fn get_cw20_transfer_from_msg(
-    token_addr: &Addr,
-    owner: &Addr,
-    recipient: &Addr,
-    amount: Uint128,
-) -> StdResult<CosmosMsg> {
-    let transfer_cw20_msg = Cw20ExecuteMsg::TransferFrom {
-        owner: owner.into(),
-        recipient: recipient.into(),
-        amount,
-    };
-
-    let exec_cw20_transfer_msg = WasmMsg::Execute {
-        contract_addr: token_addr.into(),
-        msg: to_binary(&transfer_cw20_msg)?,
-        funds: vec![],
-    };
-
-    let cw20_transfer_msg: CosmosMsg = exec_cw20_transfer_msg.into();
-    Ok(cw20_transfer_msg)
-}
-
-pub fn get_cw20_burn_from_msg(
-    token_addr: &Addr,
-    owner: &Addr,
-    amount: Uint128,
-) -> StdResult<CosmosMsg> {
-    let burn_cw20_msg = Cw20ExecuteMsg::BurnFrom {
-        owner: owner.into(),
-        amount,
-    };
-    let exec_cw20_burn_msg = WasmMsg::Execute {
-        contract_addr: token_addr.into(),
-        msg: to_binary(&burn_cw20_msg)?,
-        funds: vec![],
-    };
-
-    let cw20_burn_msg: CosmosMsg = exec_cw20_burn_msg.into();
-    Ok(cw20_burn_msg)
 }
 
 pub fn get_bank_transfer_to_msg(

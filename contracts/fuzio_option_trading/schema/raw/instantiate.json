@@ -20,17 +20,13 @@
       "description": "Parameters which are mutable by a governance vote",
       "type": "object",
       "required": [
-        "burn_fee",
         "fast_oracle_addr",
         "gaming_fee",
         "minimum_bet",
         "next_round_seconds",
-        "token_addr"
+        "token_denom"
       ],
       "properties": {
-        "burn_fee": {
-          "$ref": "#/definitions/Uint128"
-        },
         "fast_oracle_addr": {
           "$ref": "#/definitions/Addr"
         },
@@ -43,8 +39,8 @@
         "next_round_seconds": {
           "$ref": "#/definitions/Uint128"
         },
-        "token_addr": {
-          "$ref": "#/definitions/Addr"
+        "token_denom": {
+          "type": "string"
         }
       },
       "additionalProperties": false
