@@ -165,6 +165,8 @@ pub mod msg {
             start_after: Option<Uint128>,
             limit: Option<u32>,
         },
+        #[returns(AdminsResponse)]
+        GetAdmins{},
     }
 }
 
@@ -205,6 +207,11 @@ pub struct ClaimInfoResponse {
 #[cw_serde]
 pub struct PendingRewardResponse {
     pub pending_reward: Uint128,
+}
+
+#[cw_serde]
+pub struct AdminsResponse {
+    pub admins: Vec<Addr>,
 }
 
 #[cw_serde]

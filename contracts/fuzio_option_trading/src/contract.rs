@@ -6,8 +6,8 @@ use crate::state::{
 use cw0::one_coin;
 use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use fuzio_bet::fuzio_option_trading::{
-    BetInfo, ClaimInfo, ClaimInfoResponse, ConfigResponse, MyGameResponse, PendingRewardResponse,
-    RoundUsersResponse,
+    AdminsResponse, BetInfo, ClaimInfo, ClaimInfoResponse, ConfigResponse, MyGameResponse,
+    PendingRewardResponse, RoundUsersResponse,
 };
 use fuzio_bet::fuzio_option_trading::{Config, Direction};
 
@@ -578,6 +578,7 @@ pub fn query(deps: Deps<SeiQueryWrapper>, env: Env, msg: QueryMsg) -> StdResult<
             start_after,
             limit,
         } => to_binary(&query_claim_info_by_user(deps, player, start_after, limit)?),
+        QueryMsg::GetAdmins {} => to_binary(&query_get_admins(deps)?),
     }
 }
 
@@ -899,6 +900,12 @@ pub fn query_my_games_without_limit(
         .map(|res| res.map(|item| item.1))
         .collect::<StdResult<Vec<_>>>()?;
     Ok(MyGameResponse { my_game_list })
+}
+
+fn query_get_admins(deps: Deps<SeiQueryWrapper>) -> StdResult<AdminsResponse> {
+    let admins = ADMINS.load(deps.storage)?;
+
+    Ok(AdminsResponse { admins })
 }
 
 fn assert_is_current_round(deps: Deps<SeiQueryWrapper>, round_id: Uint128) -> StdResult<NextRound> {
