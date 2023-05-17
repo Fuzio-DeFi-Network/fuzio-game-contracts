@@ -1,11 +1,9 @@
 [package]
 name = "fuzio_option_trading"
-version = "1.0.0-alpha"
-authors = ["VenusDev0725 <venus07250000@gmail.com>"]
+version = "1.0.0"
 edition = "2018"
 description = "Cosmwasm AMM"
 license = "Apache-2.0"
-repository = "https://github.com/VenusDev0725/HopersSwap"
 
 exclude = [
   # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
@@ -45,7 +43,7 @@ schemars = "0.8.12"
 serde = { version = "1.0.163", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.40" }
 fuzio-bet = { path = "../../packages/fuzio-bet" }
+sei-cosmwasm = "0.4.10"
 
 [dev-dependencies]
 cosmwasm-schema = { version = "1.2.5" }
-cw-multi-test = "0.16.4"

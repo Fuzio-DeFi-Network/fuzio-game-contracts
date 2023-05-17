@@ -1,7 +1,7 @@
 use crate::error::ContractError;
 use crate::state::{
-    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ACCUMULATED_FEE, CONFIG,
-    IS_HAULTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS,
+    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ACCUMULATED_FEE, ADMINS,
+    CONFIG, IS_HALTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS,
 };
 use cw0::one_coin;
 use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
@@ -15,14 +15,14 @@ use fuzio_bet::fuzio_option_trading::{Config, Direction};
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     coins, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Event,
-    MessageInfo, Order, QueryRequest, Response, StdError, StdResult, Uint128, WasmQuery,
+    MessageInfo, Order, Response, StdError, StdResult, Uint128,
 };
 use cw_storage_plus::Bound;
-use fuzio_bet::fast_oracle::msg::QueryMsg as FastOracleQueryMsg;
 use fuzio_bet::fuzio_option_trading::{
     FinishedRound, LiveRound, NextRound, WalletInfo, FEE_PRECISION,
 };
 use fuzio_bet::fuzio_option_trading::{MyCurrentPositionResponse, StatusResponse};
+use sei_cosmwasm::{ExchangeRatesResponse, SeiQuerier, SeiQueryWrapper};
 
 // Query limits
 const DEFAULT_QUERY_LIMIT: u32 = 10;
@@ -35,18 +35,16 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn instantiate(
     deps: DepsMut,
     _env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    /* Validate addresses */
-    deps.api
-        .addr_validate(msg.config.fast_oracle_addr.as_ref())?;
 
     CONFIG.save(deps.storage, &msg.config)?;
     NEXT_ROUND_ID.save(deps.storage, &0u128)?;
     ACCUMULATED_FEE.save(deps.storage, &0u128)?;
-    IS_HAULTED.save(deps.storage, &false)?;
+    IS_HALTED.save(deps.storage, &false)?;
+    ADMINS.save(deps.storage, &vec![info.sender])?;
 
     Ok(Response::new())
 }
@@ -63,13 +61,13 @@ pub fn migrate(deps: DepsMut, _env: Env, MigrateMsg {}: MigrateMsg) -> StdResult
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
-    deps: DepsMut,
+    deps: DepsMut<SeiQueryWrapper>,
     env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { config } => execute_update_config(deps, info, env, config),
+        ExecuteMsg::UpdateConfig { config } => execute_update_config(deps, info, config),
         ExecuteMsg::BetBear { round_id, amount } => {
             execute_bet(deps, info, env, round_id, Direction::Bear, amount)
         }
@@ -81,21 +79,22 @@ pub fn execute(
         ExecuteMsg::CollectionWinningRound { round_id } => {
             execute_collect_winning_round(deps, info, round_id)
         }
-        ExecuteMsg::Hault {} => execute_update_hault(deps, info, env, true),
-        ExecuteMsg::Resume {} => execute_update_hault(deps, info, env, false),
+        ExecuteMsg::Halt {} => execute_update_halt(deps, info, true),
+        ExecuteMsg::Resume {} => execute_update_halt(deps, info, false),
         ExecuteMsg::DistributeFund { dev_wallet_list } => {
-            execute_distribute_fund(deps, env, info, dev_wallet_list)
+            execute_distribute_fund(deps, info, dev_wallet_list)
         }
+        ExecuteMsg::AddAdmin { new_admin } => add_admin(deps, new_admin),
+        ExecuteMsg::RemoveAdmin { old_admin } => remove_admin(deps, old_admin),
     }
 }
 
 fn execute_distribute_fund(
-    deps: DepsMut,
-    env: Env,
+    deps: DepsMut<SeiQueryWrapper>,
     info: MessageInfo,
     dev_wallet_list: Vec<WalletInfo>,
 ) -> Result<Response, ContractError> {
-    assert_is_admin(deps.as_ref(), info, env)?;
+    assert_is_admin(deps.as_ref(), info)?;
 
     let config = CONFIG.load(deps.storage)?;
     let collected_fee = ACCUMULATED_FEE.load(deps.storage)?;
@@ -126,7 +125,10 @@ fn execute_distribute_fund(
         .add_messages(messages))
 }
 
-fn execute_collect_winnings(deps: DepsMut, info: MessageInfo) -> Result<Response, ContractError> {
+fn execute_collect_winnings(
+    deps: DepsMut<SeiQueryWrapper>,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut winnings = Uint128::zero();
     let resp = Response::new();
@@ -223,7 +225,7 @@ fn execute_collect_winnings(deps: DepsMut, info: MessageInfo) -> Result<Response
 }
 
 fn execute_collect_winning_round(
-    deps: DepsMut,
+    deps: DepsMut<SeiQueryWrapper>,
     info: MessageInfo,
     round_id: Uint128,
 ) -> Result<Response, ContractError> {
@@ -328,14 +330,14 @@ fn execute_collect_winning_round(
 }
 
 fn execute_bet(
-    deps: DepsMut,
+    deps: DepsMut<SeiQueryWrapper>,
     info: MessageInfo,
     env: Env,
     round_id: Uint128,
     dir: Direction,
     gross: Uint128,
 ) -> Result<Response, ContractError> {
-    assert_not_haulted(deps.as_ref())?;
+    assert_not_halted(deps.as_ref())?;
 
     let mut bet_round = assert_is_current_round(deps.as_ref(), round_id)?;
     let mut resp = Response::new();
@@ -431,12 +433,12 @@ fn execute_bet(
 }
 
 fn execute_close_round(
-    deps: DepsMut,
+    deps: DepsMut<SeiQueryWrapper>,
     info: MessageInfo,
     env: Env,
 ) -> Result<Response, ContractError> {
-    assert_not_haulted(deps.as_ref())?;
-    assert_is_admin(deps.as_ref(), info, env.clone())?;
+    assert_not_halted(deps.as_ref())?;
+    assert_is_admin(deps.as_ref(), info)?;
     let now = env.block.time;
     let config = CONFIG.load(deps.storage)?;
     let mut resp: Response = Response::new();
@@ -471,7 +473,7 @@ fn execute_close_round(
     /* Close the bidding round if it is finished
      * NOTE Don't allow two live rounds at the same time - wait for the other to close
      */
-    let new_bid_round = |deps: DepsMut, env: Env| -> StdResult<Uint128> {
+    let new_bid_round = |deps: DepsMut<SeiQueryWrapper>, env: Env| -> StdResult<Uint128> {
         let id = Uint128::from(NEXT_ROUND_ID.load(deps.storage)?);
         let open_time = match LIVE_ROUND.may_load(deps.storage)? {
             Some(live_round) => live_round.close_time,
@@ -502,10 +504,10 @@ fn execute_close_round(
             if LIVE_ROUND.may_load(deps.storage)?.is_none() && now >= open_round.open_time {
                 let live_round = compute_round_open(deps.as_ref(), env.clone(), open_round)?;
                 resp = resp.add_event(Event::new("hopers_bet").add_attributes(vec![
-                    ("round_bidding_close", live_round.id),
-                    ("open_price", live_round.open_price),
-                    ("bear_amount", live_round.bear_amount),
-                    ("bull_amount", live_round.bull_amount),
+                    ("round_bidding_close", live_round.id.to_string()),
+                    ("open_price", live_round.open_price.to_string()),
+                    ("bear_amount", live_round.bear_amount.to_string()),
+                    ("bull_amount", live_round.bull_amount.to_string()),
                 ]));
                 LIVE_ROUND.save(deps.storage, &live_round)?;
                 NEXT_ROUND.remove(deps.storage);
@@ -527,12 +529,11 @@ fn execute_close_round(
 }
 
 fn execute_update_config(
-    deps: DepsMut,
+    deps: DepsMut<SeiQueryWrapper>,
     info: MessageInfo,
-    env: Env,
     u_config: Config,
 ) -> Result<Response, ContractError> {
-    assert_is_admin(deps.as_ref(), info, env)?;
+    assert_is_admin(deps.as_ref(), info)?;
 
     CONFIG.save(deps.storage, &u_config)?;
 
@@ -540,7 +541,7 @@ fn execute_update_config(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps<SeiQueryWrapper>, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
         QueryMsg::Status {} => to_binary(&query_status(deps, env)?),
@@ -580,12 +581,18 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-fn query_finished_round(deps: Deps, round_id: Uint128) -> StdResult<FinishedRound> {
+fn query_finished_round(
+    deps: Deps<SeiQueryWrapper>,
+    round_id: Uint128,
+) -> StdResult<FinishedRound> {
     let round = ROUNDS.load(deps.storage, round_id.u128())?;
     Ok(round)
 }
 
-fn query_my_current_position(deps: Deps, address: String) -> StdResult<MyCurrentPositionResponse> {
+fn query_my_current_position(
+    deps: Deps<SeiQueryWrapper>,
+    address: String,
+) -> StdResult<MyCurrentPositionResponse> {
     let round_id = NEXT_ROUND_ID.load(deps.storage)?;
     let next_bet_key = (round_id - 1, deps.api.addr_validate(&address)?);
 
@@ -632,7 +639,7 @@ fn query_my_current_position(deps: Deps, address: String) -> StdResult<MyCurrent
     })
 }
 
-fn query_status(deps: Deps, env: Env) -> StdResult<StatusResponse> {
+fn query_status(deps: Deps<SeiQueryWrapper>, env: Env) -> StdResult<StatusResponse> {
     let live_round = LIVE_ROUND.may_load(deps.storage)?;
     let bidding_round = NEXT_ROUND.may_load(deps.storage)?;
     let current_time = env.block.time;
@@ -644,12 +651,12 @@ fn query_status(deps: Deps, env: Env) -> StdResult<StatusResponse> {
     })
 }
 
-fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
+fn query_config(deps: Deps<SeiQueryWrapper>) -> StdResult<ConfigResponse> {
     CONFIG.load(deps.storage)
 }
 
 pub fn query_my_games(
-    deps: Deps,
+    deps: Deps<SeiQueryWrapper>,
     player: Addr,
     start_after: Option<Uint128>,
     limit: Option<u32>,
@@ -676,7 +683,7 @@ pub fn query_my_games(
 
 //it is used for backend saving
 pub fn query_users_per_round(
-    deps: Deps,
+    deps: Deps<SeiQueryWrapper>,
     round_id: Uint128,
     start_after: Option<Addr>,
     limit: Option<u32>,
@@ -703,7 +710,7 @@ pub fn query_users_per_round(
 }
 
 pub fn query_claim_info_per_round(
-    deps: Deps,
+    deps: Deps<SeiQueryWrapper>,
     round_id: Uint128,
     start_after: Option<Addr>,
     limit: Option<u32>,
@@ -730,7 +737,7 @@ pub fn query_claim_info_per_round(
 }
 
 pub fn query_claim_info_by_user(
-    deps: Deps,
+    deps: Deps<SeiQueryWrapper>,
     player: Addr,
     start_after: Option<Uint128>,
     limit: Option<u32>,
@@ -756,7 +763,10 @@ pub fn query_claim_info_by_user(
     Ok(ClaimInfoResponse { claim_info })
 }
 
-pub fn query_my_pending_reward(deps: Deps, player: Addr) -> StdResult<PendingRewardResponse> {
+pub fn query_my_pending_reward(
+    deps: Deps<SeiQueryWrapper>,
+    player: Addr,
+) -> StdResult<PendingRewardResponse> {
     let my_game_list = query_my_games_without_limit(deps, player.clone())?;
     let mut winnings = Uint128::zero();
 
@@ -812,7 +822,7 @@ pub fn query_my_pending_reward(deps: Deps, player: Addr) -> StdResult<PendingRew
 }
 
 pub fn query_my_pending_reward_round(
-    deps: Deps,
+    deps: Deps<SeiQueryWrapper>,
     round_id: Uint128,
     player: Addr,
 ) -> StdResult<PendingRewardResponse> {
@@ -877,7 +887,10 @@ pub fn query_my_pending_reward_round(
     })
 }
 
-pub fn query_my_games_without_limit(deps: Deps, player: Addr) -> StdResult<MyGameResponse> {
+pub fn query_my_games_without_limit(
+    deps: Deps<SeiQueryWrapper>,
+    player: Addr,
+) -> StdResult<MyGameResponse> {
     let my_game_list = bet_info_storage()
         .idx
         .player
@@ -888,7 +901,7 @@ pub fn query_my_games_without_limit(deps: Deps, player: Addr) -> StdResult<MyGam
     Ok(MyGameResponse { my_game_list })
 }
 
-fn assert_is_current_round(deps: Deps, round_id: Uint128) -> StdResult<NextRound> {
+fn assert_is_current_round(deps: Deps<SeiQueryWrapper>, round_id: Uint128) -> StdResult<NextRound> {
     let open_round = NEXT_ROUND.load(deps.storage)?;
 
     if round_id != open_round.id {
@@ -901,7 +914,7 @@ fn assert_is_current_round(deps: Deps, round_id: Uint128) -> StdResult<NextRound
     Ok(open_round)
 }
 
-fn compute_gaming_fee(deps: Deps, gross: Uint128) -> StdResult<Uint128> {
+fn compute_gaming_fee(deps: Deps<SeiQueryWrapper>, gross: Uint128) -> StdResult<Uint128> {
     let staker_fee = CONFIG.load(deps.storage)?.gaming_fee;
 
     staker_fee
@@ -909,7 +922,11 @@ fn compute_gaming_fee(deps: Deps, gross: Uint128) -> StdResult<Uint128> {
         .map_err(|e| StdError::generic_err(e.to_string()))
 }
 
-fn compute_round_open(deps: Deps, env: Env, round: &NextRound) -> StdResult<LiveRound> {
+fn compute_round_open(
+    deps: Deps<SeiQueryWrapper>,
+    env: Env,
+    round: &NextRound,
+) -> Result<LiveRound, ContractError> {
     /* TODO */
     let open_price = get_current_price(deps)?;
     let config = CONFIG.load(deps.storage)?;
@@ -928,18 +945,27 @@ fn compute_round_open(deps: Deps, env: Env, round: &NextRound) -> StdResult<Live
     })
 }
 
-fn get_current_price(deps: Deps) -> StdResult<Uint128> {
+fn get_current_price(deps: Deps<SeiQueryWrapper>) -> Result<Decimal, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    let querier = SeiQuerier::new(&deps.querier);
+    let res: ExchangeRatesResponse = querier.query_exchange_rates()?;
 
-    let price: Uint128 = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.fast_oracle_addr.to_string(),
-        msg: to_binary(&FastOracleQueryMsg::Price {})?,
-    }))?;
+    let exchange_rate = res
+        .denom_oracle_exchange_rate_pairs
+        .iter()
+        .find(|rate| config.bet_token_denom == rate.denom);
 
-    Ok(price)
+    if exchange_rate.is_none() {
+        return Err(ContractError::PriceNotFoundInOracle {});
+    }
+
+    Ok(exchange_rate.unwrap().oracle_exchange_rate.exchange_rate)
 }
 
-fn compute_round_close(deps: Deps, round: &LiveRound) -> StdResult<FinishedRound> {
+fn compute_round_close(
+    deps: Deps<SeiQueryWrapper>,
+    round: &LiveRound,
+) -> Result<FinishedRound, ContractError> {
     let close_price = get_current_price(deps)?;
 
     let winner = match close_price.cmp(&round.open_price) {
@@ -973,40 +999,60 @@ fn compute_round_close(deps: Deps, round: &LiveRound) -> StdResult<FinishedRound
     })
 }
 
-fn assert_not_haulted(deps: Deps) -> StdResult<bool> {
-    let is_haulted = IS_HAULTED.load(deps.storage)?;
-    if is_haulted {
-        return Err(StdError::generic_err("Contract is haulted"));
+fn assert_not_halted(deps: Deps<SeiQueryWrapper>) -> StdResult<bool> {
+    let is_halted = IS_HALTED.load(deps.storage)?;
+    if is_halted {
+        return Err(StdError::generic_err("Contract is halted"));
     }
     Ok(true)
 }
 
-fn execute_update_hault(
-    deps: DepsMut,
+fn execute_update_halt(
+    deps: DepsMut<SeiQueryWrapper>,
     info: MessageInfo,
-    env: Env,
-    is_haulted: bool,
+    is_halted: bool,
 ) -> Result<Response, ContractError> {
-    assert_is_admin(deps.as_ref(), info, env)?;
-    IS_HAULTED.save(deps.storage, &is_haulted)?;
-    Ok(Response::new().add_event(Event::new("hopers_bet").add_attribute("hault_games", "true")))
+    assert_is_admin(deps.as_ref(), info)?;
+    IS_HALTED.save(deps.storage, &is_halted)?;
+    Ok(Response::new().add_event(Event::new("hopers_bet").add_attribute("halt_games", "true")))
 }
 
-fn assert_is_admin(deps: Deps, info: MessageInfo, env: Env) -> StdResult<bool> {
-    let admin = deps
-        .querier
-        .query_wasm_contract_info(env.contract.address)?
-        .admin
-        .unwrap_or_default();
-
-    if info.sender != admin {
+fn assert_is_admin(deps: Deps<SeiQueryWrapper>, info: MessageInfo) -> StdResult<bool> {
+    let admins = ADMINS.load(deps.storage)?;
+    if !admins.contains(&info.sender) {
         return Err(StdError::generic_err(format!(
-            "Only the admin can execute this function. Admin: {}, Sender: {}",
-            admin, info.sender
+            "Only an admin can execute this function. Sender: {}",
+            info.sender
         )));
     }
 
     Ok(true)
+}
+
+fn add_admin(deps: DepsMut<SeiQueryWrapper>, new_admin: Addr) -> Result<Response, ContractError> {
+    deps.api.addr_validate(&new_admin.to_string())?;
+    let mut admins = ADMINS.load(deps.storage)?;
+
+    admins.push(new_admin.clone());
+
+    ADMINS.save(deps.storage, &admins)?;
+
+    Ok(Response::new().add_attribute("add_admin", new_admin.to_string()))
+}
+
+fn remove_admin(
+    deps: DepsMut<SeiQueryWrapper>,
+    old_admin: Addr,
+) -> Result<Response, ContractError> {
+    let mut admins = ADMINS.load(deps.storage)?;
+    admins.retain(|admin| admin != old_admin);
+
+    if admins.is_empty() {
+        return Err(ContractError::NeedOneAdmin {});
+    }
+
+    ADMINS.save(deps.storage, &admins)?;
+    Ok(Response::new().add_attribute("remove_admin", old_admin.to_string()))
 }
 
 pub fn get_bank_transfer_to_msg(

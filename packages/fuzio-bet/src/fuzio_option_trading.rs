@@ -27,10 +27,12 @@ impl ToString for Direction {
 pub struct Config {
     /* After a round ends this is the duration of the next */
     pub next_round_seconds: Uint128,
-    pub fast_oracle_addr: Addr,
     pub minimum_bet: Uint128,
     pub gaming_fee: Uint128,
+    //The token we are placing the bet with
     pub token_denom: String,
+    //What are we betting against
+    pub bet_token_denom: String,
 }
 
 #[cw_serde]
@@ -49,7 +51,7 @@ pub struct LiveRound {
     pub bid_time: Timestamp,
     pub open_time: Timestamp,
     pub close_time: Timestamp,
-    pub open_price: Uint128,
+    pub open_price: Decimal,
     pub bull_amount: Uint128,
     pub bear_amount: Uint128,
 }
@@ -60,8 +62,8 @@ pub struct FinishedRound {
     pub bid_time: Timestamp,
     pub open_time: Timestamp,
     pub close_time: Timestamp,
-    pub open_price: Uint128,
-    pub close_price: Uint128,
+    pub open_price: Decimal,
+    pub close_price: Decimal,
     pub winner: Option<Direction>,
     pub bull_amount: Uint128,
     pub bear_amount: Uint128,
@@ -118,8 +120,10 @@ pub mod msg {
         DistributeFund {
             dev_wallet_list: Vec<WalletInfo>,
         },
-        Hault {},
+        Halt {},
         Resume {},
+        AddAdmin { new_admin: Addr },
+        RemoveAdmin { old_admin: Addr },
     }
 
     #[cw_serde]
