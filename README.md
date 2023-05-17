@@ -1,13 +1,12 @@
 # Fuzio Option Trading
 
-Fuzio option trading game with fuzion cw20 token on sei network.
+Fuzio option trading game with fuzion native token (generated with token factory) on sei network and using sei network oracle to retrieve price data.
 
 ## General Contracts
 
 | Name                                   | Description             |
 | -------------------------------------- | ----------------------- |
 | [`fuzio_option_trading`](contracts/fuzio_option_trading)   | Option Trading contract |
-| [`fast-oracle`](contracts/fast-oracle)                     | To set the price of sei |
 
 ## Building Contracts
 
@@ -19,17 +18,6 @@ Go to contract directory and run
 
 ```
 cargo wasm
-cp ../../target/wasm32-unknown-unknown/release/archon_token.wasm .
-ls -l archon_token.wasm
-sha256sum archon_token.wasm
-```
-
-### You can run tests for all contracts
-
-Run the following from the repository root
-
-```
-cargo test
 ```
 
 ### For a production-ready (compressed) build:
@@ -37,7 +25,10 @@ cargo test
 Run the following from the repository root
 
 ```
-./scripts/build_release.sh
+docker run --rm -v "$(pwd)":/code \
+  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
+  --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
+  cosmwasm/rust-optimizer:0.12.13
 ```
 
 The optimized contracts are generated in the artifacts/ directory.
