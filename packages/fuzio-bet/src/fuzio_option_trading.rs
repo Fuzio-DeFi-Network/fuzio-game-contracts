@@ -33,6 +33,7 @@ pub struct Config {
     pub token_denom: String,
     //What are we betting against
     pub bet_token_denom: String,
+    pub dev_wallet_list: Vec<WalletInfo>,
 }
 
 #[cw_serde]
@@ -74,7 +75,7 @@ pub mod msg {
 
     #[cw_serde]
     pub struct MigrateMsg {}
-    
+
     #[cw_serde]
     pub struct InstantiateMsg {
         /* Mutable params */
@@ -117,13 +118,17 @@ pub mod msg {
         CollectionWinningRound {
             round_id: Uint128,
         },
-        DistributeFund {
-            dev_wallet_list: Vec<WalletInfo>,
-        },
         Halt {},
         Resume {},
-        AddAdmin { new_admin: Addr },
-        RemoveAdmin { old_admin: Addr },
+        AddAdmin {
+            new_admin: Addr,
+        },
+        RemoveAdmin {
+            old_admin: Addr,
+        },
+        ModifyDevWallet {
+            new_dev_wallets: Vec<WalletInfo>,
+        },
     }
 
     #[cw_serde]
@@ -166,7 +171,7 @@ pub mod msg {
             limit: Option<u32>,
         },
         #[returns(AdminsResponse)]
-        GetAdmins{},
+        GetAdmins {},
     }
 }
 

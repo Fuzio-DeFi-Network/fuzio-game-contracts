@@ -7,20 +7,18 @@ use cw0::one_coin;
 use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use fuzio_bet::fuzio_option_trading::{
     AdminsResponse, BetInfo, ClaimInfo, ClaimInfoResponse, ConfigResponse, MyGameResponse,
-    PendingRewardResponse, RoundUsersResponse,
+    PendingRewardResponse, RoundUsersResponse, WalletInfo,
 };
 use fuzio_bet::fuzio_option_trading::{Config, Direction};
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    coins, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Event,
-    MessageInfo, Order, Response, StdError, StdResult, Uint128,
+    coins, to_binary, Addr, BankMsg, Binary, Decimal, Deps, DepsMut, Env, Event, MessageInfo,
+    Order, Response, StdError, StdResult, Uint128,
 };
 use cw_storage_plus::Bound;
-use fuzio_bet::fuzio_option_trading::{
-    FinishedRound, LiveRound, NextRound, WalletInfo, FEE_PRECISION,
-};
+use fuzio_bet::fuzio_option_trading::{FinishedRound, LiveRound, NextRound, FEE_PRECISION};
 use fuzio_bet::fuzio_option_trading::{MyCurrentPositionResponse, StatusResponse};
 use sei_cosmwasm::{ExchangeRatesResponse, SeiQuerier, SeiQueryWrapper};
 
@@ -39,6 +37,15 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    let mut total_ratio = Decimal::zero();
+    for dev_wallet in msg.config.dev_wallet_list.clone() {
+        total_ratio = total_ratio + dev_wallet.ratio;
+    }
+
+    if total_ratio != Decimal::one() {
+        return Err(ContractError::WrongRatio {});
+    }
 
     CONFIG.save(deps.storage, &msg.config)?;
     NEXT_ROUND_ID.save(deps.storage, &0u128)?;
@@ -74,55 +81,17 @@ pub fn execute(
         ExecuteMsg::BetBull { round_id, amount } => {
             execute_bet(deps, info, env, round_id, Direction::Bull, amount)
         }
-        ExecuteMsg::CloseRound {} => execute_close_round(deps, info, env),
+        ExecuteMsg::CloseRound {} => execute_close_round(deps, env),
         ExecuteMsg::CollectWinnings {} => execute_collect_winnings(deps, info),
         ExecuteMsg::CollectionWinningRound { round_id } => {
             execute_collect_winning_round(deps, info, round_id)
         }
         ExecuteMsg::Halt {} => execute_update_halt(deps, info, true),
         ExecuteMsg::Resume {} => execute_update_halt(deps, info, false),
-        ExecuteMsg::DistributeFund { dev_wallet_list } => {
-            execute_distribute_fund(deps, info, dev_wallet_list)
-        }
-        ExecuteMsg::AddAdmin { new_admin } => add_admin(deps, new_admin),
-        ExecuteMsg::RemoveAdmin { old_admin } => remove_admin(deps, old_admin),
+        ExecuteMsg::AddAdmin { new_admin } => execute_add_admin(deps, info, new_admin),
+        ExecuteMsg::RemoveAdmin { old_admin } => execute_remove_admin(deps, info, old_admin),
+        ExecuteMsg::ModifyDevWallet { new_dev_wallets } => execute_modify_dev_wallets(deps, info, new_dev_wallets),
     }
-}
-
-fn execute_distribute_fund(
-    deps: DepsMut<SeiQueryWrapper>,
-    info: MessageInfo,
-    dev_wallet_list: Vec<WalletInfo>,
-) -> Result<Response, ContractError> {
-    assert_is_admin(deps.as_ref(), info)?;
-
-    let config = CONFIG.load(deps.storage)?;
-    let collected_fee = ACCUMULATED_FEE.load(deps.storage)?;
-
-    let mut total_ratio = Decimal::zero();
-    let mut messages = Vec::new();
-    for dev_wallet in dev_wallet_list.clone() {
-        total_ratio = total_ratio + dev_wallet.ratio;
-    }
-
-    if total_ratio != Decimal::one() {
-        return Err(ContractError::WrongRatio {});
-    }
-
-    for dev_wallet in dev_wallet_list {
-        let token_transfer_msg = BankMsg::Send {
-            to_address: dev_wallet.address.to_string(),
-            amount: coins(
-                (Uint128::new(collected_fee) * dev_wallet.ratio).u128(),
-                &config.token_denom,
-            ),
-        };
-        messages.push(token_transfer_msg)
-    }
-
-    Ok(Response::new()
-        .add_attribute("action", "distribute_reward")
-        .add_messages(messages))
 }
 
 fn execute_collect_winnings(
@@ -375,7 +344,7 @@ fn execute_bet(
 
     if !bet_info.is_none() {
         return Err(ContractError::Std(StdError::generic_err(format!(
-            "You are already bet for this game for {}, with amount: {}",
+            "You have already bet for this game for {}, with amount: {}",
             bet_info.clone().unwrap().direction.to_string(),
             bet_info.unwrap().amount
         ))));
@@ -434,18 +403,27 @@ fn execute_bet(
 
 fn execute_close_round(
     deps: DepsMut<SeiQueryWrapper>,
-    info: MessageInfo,
     env: Env,
 ) -> Result<Response, ContractError> {
     assert_not_halted(deps.as_ref())?;
-    assert_is_admin(deps.as_ref(), info)?;
     let now = env.block.time;
     let config = CONFIG.load(deps.storage)?;
     let mut resp: Response = Response::new();
 
-    /*
-     * Close the live round if it is finished
-     */
+    let collected_fee = ACCUMULATED_FEE.load(deps.storage)?;
+    let mut messages = Vec::new();
+
+    for dev_wallet in config.clone().dev_wallet_list {
+        let token_transfer_msg = BankMsg::Send {
+            to_address: dev_wallet.address.to_string(),
+            amount: coins(
+                (Uint128::new(collected_fee) * dev_wallet.ratio).u128(),
+                &config.token_denom,
+            ),
+        };
+        messages.push(token_transfer_msg)
+    }
+
     let maybe_live_round = LIVE_ROUND.may_load(deps.storage)?;
     match &maybe_live_round {
         Some(live_round) => {
@@ -465,6 +443,10 @@ fn execute_close_round(
                     ),
                 ]));
                 LIVE_ROUND.remove(deps.storage);
+                resp = resp
+                    .add_attribute("action", "distribute_rewards")
+                    .add_messages(messages);
+                ACCUMULATED_FEE.save(deps.storage, &0u128)?;
             }
         }
         None => {}
@@ -498,6 +480,7 @@ fn execute_close_round(
         NEXT_ROUND_ID.save(deps.storage, &(id.u128() + 1u128))?;
         Ok(id)
     };
+
     let maybe_open_round = NEXT_ROUND.may_load(deps.storage)?;
     match &maybe_open_round {
         Some(open_round) => {
@@ -1036,7 +1019,12 @@ fn assert_is_admin(deps: Deps<SeiQueryWrapper>, info: MessageInfo) -> StdResult<
     Ok(true)
 }
 
-fn add_admin(deps: DepsMut<SeiQueryWrapper>, new_admin: Addr) -> Result<Response, ContractError> {
+fn execute_add_admin(
+    deps: DepsMut<SeiQueryWrapper>,
+    info: MessageInfo,
+    new_admin: Addr,
+) -> Result<Response, ContractError> {
+    assert_is_admin(deps.as_ref(), info)?;
     deps.api.addr_validate(&new_admin.to_string())?;
     let mut admins = ADMINS.load(deps.storage)?;
 
@@ -1047,10 +1035,12 @@ fn add_admin(deps: DepsMut<SeiQueryWrapper>, new_admin: Addr) -> Result<Response
     Ok(Response::new().add_attribute("add_admin", new_admin.to_string()))
 }
 
-fn remove_admin(
+fn execute_remove_admin(
     deps: DepsMut<SeiQueryWrapper>,
+    info: MessageInfo,
     old_admin: Addr,
 ) -> Result<Response, ContractError> {
+    assert_is_admin(deps.as_ref(), info)?;
     let mut admins = ADMINS.load(deps.storage)?;
     admins.retain(|admin| admin != old_admin);
 
@@ -1062,19 +1052,24 @@ fn remove_admin(
     Ok(Response::new().add_attribute("remove_admin", old_admin.to_string()))
 }
 
-pub fn get_bank_transfer_to_msg(
-    recipient: &Addr,
-    denom: &str,
-    amount: Uint128,
-) -> StdResult<CosmosMsg> {
-    let transfer_bank_msg = cosmwasm_std::BankMsg::Send {
-        to_address: recipient.into(),
-        amount: vec![Coin {
-            denom: denom.to_string(),
-            amount,
-        }],
-    };
+fn execute_modify_dev_wallets(
+    deps: DepsMut<SeiQueryWrapper>,
+    info: MessageInfo,
+    new_wallets: Vec<WalletInfo>,
+) -> Result<Response, ContractError> {
+    assert_is_admin(deps.as_ref(), info)?;
+    let mut total_ratio = Decimal::zero();
+    for dev_wallet in new_wallets.clone() {
+        total_ratio = total_ratio + dev_wallet.ratio;
+    }
 
-    let transfer_bank_cosmos_msg: CosmosMsg = transfer_bank_msg.into();
-    Ok(transfer_bank_cosmos_msg)
+    if total_ratio != Decimal::one() {
+        return Err(ContractError::WrongRatio {});
+    }
+
+    let mut config = CONFIG.load(deps.storage)?;
+    config.dev_wallet_list = new_wallets;
+    CONFIG.save(deps.storage, &config)?;
+
+    Ok(Response::new().add_attribute("action", "new_dev_wallets"))
 }

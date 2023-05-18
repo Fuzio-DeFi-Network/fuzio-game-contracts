@@ -1,1 +1,1 @@
-e1aab4626b77ac62dc93e0bcfa74d155db533cccf97898297847379440022605  fuzio_option_trading.wasm
+65a00e70093db52fea15578b261d74f48b7e94e7be75d8bb9768a93b02561db3  fuzio_option_trading.wasm
