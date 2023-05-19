@@ -90,7 +90,9 @@ pub fn execute(
         ExecuteMsg::Resume {} => execute_update_halt(deps, info, false),
         ExecuteMsg::AddAdmin { new_admin } => execute_add_admin(deps, info, new_admin),
         ExecuteMsg::RemoveAdmin { old_admin } => execute_remove_admin(deps, info, old_admin),
-        ExecuteMsg::ModifyDevWallet { new_dev_wallets } => execute_modify_dev_wallets(deps, info, new_dev_wallets),
+        ExecuteMsg::ModifyDevWallet { new_dev_wallets } => {
+            execute_modify_dev_wallets(deps, info, new_dev_wallets)
+        }
     }
 }
 
@@ -365,7 +367,7 @@ fn execute_bet(
             )?;
             bet_round.bull_amount += bet_amt;
             NEXT_ROUND.save(deps.storage, &bet_round)?;
-            resp = resp.add_event(Event::new("hopers_bet").add_attributes(vec![
+            resp = resp.add_event(Event::new("fuzio_bet").add_attributes(vec![
                 ("action", "fuzio-bet".to_string()),
                 ("round", round_id.to_string()),
                 ("direction", "bull".to_string()),
@@ -387,7 +389,7 @@ fn execute_bet(
             )?;
             bet_round.bear_amount += bet_amt;
             NEXT_ROUND.save(deps.storage, &bet_round)?;
-            resp = resp.add_event(Event::new("hopers_bet").add_attributes(vec![
+            resp = resp.add_event(Event::new("fuzio_bet").add_attributes(vec![
                 ("action", "fuzio-bet".to_string()),
                 ("round", round_id.to_string()),
                 ("direction", "bear".to_string()),
@@ -413,15 +415,17 @@ fn execute_close_round(
     let collected_fee = ACCUMULATED_FEE.load(deps.storage)?;
     let mut messages = Vec::new();
 
-    for dev_wallet in config.clone().dev_wallet_list {
-        let token_transfer_msg = BankMsg::Send {
-            to_address: dev_wallet.address.to_string(),
-            amount: coins(
-                (Uint128::new(collected_fee) * dev_wallet.ratio).u128(),
-                &config.token_denom,
-            ),
-        };
-        messages.push(token_transfer_msg)
+    if collected_fee != 0 {
+        for dev_wallet in config.clone().dev_wallet_list {
+            let token_transfer_msg = BankMsg::Send {
+                to_address: dev_wallet.address.to_string(),
+                amount: coins(
+                    (Uint128::new(collected_fee) * dev_wallet.ratio).u128(),
+                    &config.token_denom,
+                ),
+            };
+            messages.push(token_transfer_msg)
+        }
     }
 
     let maybe_live_round = LIVE_ROUND.may_load(deps.storage)?;
@@ -431,7 +435,7 @@ fn execute_close_round(
                 let finished_round = compute_round_close(deps.as_ref(), live_round)?;
                 ROUNDS.save(deps.storage, live_round.id.u128(), &finished_round)?;
 
-                resp = resp.add_event(Event::new("hopers_bet").add_attributes(vec![
+                resp = resp.add_event(Event::new("fuzio_bet").add_attributes(vec![
                     ("round_dead", live_round.id.to_string()),
                     ("close_price", finished_round.close_price.to_string()),
                     (
@@ -443,9 +447,10 @@ fn execute_close_round(
                     ),
                 ]));
                 LIVE_ROUND.remove(deps.storage);
-                resp = resp
-                    .add_attribute("action", "distribute_rewards")
-                    .add_messages(messages);
+                resp = resp.add_attribute("action", "distribute_rewards");
+                if collected_fee != 0 {
+                    resp = resp.add_messages(messages);
+                }
                 ACCUMULATED_FEE.save(deps.storage, &0u128)?;
             }
         }
@@ -486,7 +491,7 @@ fn execute_close_round(
         Some(open_round) => {
             if LIVE_ROUND.may_load(deps.storage)?.is_none() && now >= open_round.open_time {
                 let live_round = compute_round_open(deps.as_ref(), env.clone(), open_round)?;
-                resp = resp.add_event(Event::new("hopers_bet").add_attributes(vec![
+                resp = resp.add_event(Event::new("fuzio_bet").add_attributes(vec![
                     ("round_bidding_close", live_round.id.to_string()),
                     ("open_price", live_round.open_price.to_string()),
                     ("bear_amount", live_round.bear_amount.to_string()),
@@ -496,14 +501,14 @@ fn execute_close_round(
                 NEXT_ROUND.remove(deps.storage);
                 let new_round_id = new_bid_round(deps, env)?;
                 resp = resp.add_event(
-                    Event::new("hopers_bet").add_attribute("round_bidding_open", new_round_id),
+                    Event::new("fuzio_bet").add_attribute("round_bidding_open", new_round_id),
                 );
             }
         }
         None => {
             let new_round_id = new_bid_round(deps, env)?;
             resp = resp.add_event(
-                Event::new("hopers_bet").add_attribute("round_bidding_open", new_round_id),
+                Event::new("fuzio_bet").add_attribute("round_bidding_open", new_round_id),
             );
         }
     }
@@ -1004,7 +1009,7 @@ fn execute_update_halt(
 ) -> Result<Response, ContractError> {
     assert_is_admin(deps.as_ref(), info)?;
     IS_HALTED.save(deps.storage, &is_halted)?;
-    Ok(Response::new().add_event(Event::new("hopers_bet").add_attribute("halt_games", "true")))
+    Ok(Response::new().add_event(Event::new("fuzio_beta").add_attribute("halt_games", "true")))
 }
 
 fn assert_is_admin(deps: Deps<SeiQueryWrapper>, info: MessageInfo) -> StdResult<bool> {
