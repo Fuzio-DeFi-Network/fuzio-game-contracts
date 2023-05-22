@@ -3,7 +3,7 @@ use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
 use fuzio_bet::fuzio_option_trading::{BetInfoKey, BetInfo, ClaimInfoKey, ClaimInfo};
 use fuzio_bet::fuzio_option_trading::{Config, FinishedRound, LiveRound, NextRound};
 
-pub const IS_HAULTED: Item<bool> = Item::new("is_haulted");
+pub const IS_HALTED: Item<bool> = Item::new("is_halted");
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const NEXT_ROUND_ID: Item<u128> = Item::new("next_round_id");
 /* The round that's open for betting */
@@ -14,6 +14,8 @@ pub const LIVE_ROUND: Item<LiveRound> = Item::new("live_round");
 pub const ACCUMULATED_FEE: Item<u128> = Item::new("accumulated_fee");
 
 pub const ROUNDS: Map<u128, FinishedRound> = Map::new("rounds");
+
+pub const ADMINS: Item<Vec<Addr>> = Item::new("admins");
 
 /// Convenience bid key constructor
 pub fn bet_info_key(round_id: u128, player: &Addr) -> BetInfoKey {

@@ -22,4 +22,10 @@ pub enum ContractError {
 
     #[error("The sum of wallet ratio is not equal to 1")]
     WrongRatio {},
+
+    #[error("Denom not found in oracle")]
+    PriceNotFoundInOracle {},
+
+    #[error("At least one admin must remain")]
+    NeedOneAdmin {},
 }

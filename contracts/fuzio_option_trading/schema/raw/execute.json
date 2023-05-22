@@ -128,34 +128,10 @@
     {
       "type": "object",
       "required": [
-        "distribute_fund"
+        "halt"
       ],
       "properties": {
-        "distribute_fund": {
-          "type": "object",
-          "required": [
-            "dev_wallet_list"
-          ],
-          "properties": {
-            "dev_wallet_list": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/WalletInfo"
-              }
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "required": [
-        "hault"
-      ],
-      "properties": {
-        "hault": {
+        "halt": {
           "type": "object",
           "additionalProperties": false
         }
@@ -174,6 +150,72 @@
         }
       },
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "add_admin"
+      ],
+      "properties": {
+        "add_admin": {
+          "type": "object",
+          "required": [
+            "new_admin"
+          ],
+          "properties": {
+            "new_admin": {
+              "$ref": "#/definitions/Addr"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "remove_admin"
+      ],
+      "properties": {
+        "remove_admin": {
+          "type": "object",
+          "required": [
+            "old_admin"
+          ],
+          "properties": {
+            "old_admin": {
+              "$ref": "#/definitions/Addr"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "modify_dev_wallet"
+      ],
+      "properties": {
+        "modify_dev_wallet": {
+          "type": "object",
+          "required": [
+            "new_dev_wallets"
+          ],
+          "properties": {
+            "new_dev_wallets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/WalletInfo"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   ],
   "definitions": {
@@ -185,15 +227,22 @@
       "description": "Parameters which are mutable by a governance vote",
       "type": "object",
       "required": [
-        "fast_oracle_addr",
+        "bet_token_denom",
+        "dev_wallet_list",
         "gaming_fee",
         "minimum_bet",
         "next_round_seconds",
         "token_denom"
       ],
       "properties": {
-        "fast_oracle_addr": {
-          "$ref": "#/definitions/Addr"
+        "bet_token_denom": {
+          "type": "string"
+        },
+        "dev_wallet_list": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WalletInfo"
+          }
         },
         "gaming_fee": {
           "$ref": "#/definitions/Uint128"

@@ -27,10 +27,13 @@ impl ToString for Direction {
 pub struct Config {
     /* After a round ends this is the duration of the next */
     pub next_round_seconds: Uint128,
-    pub fast_oracle_addr: Addr,
     pub minimum_bet: Uint128,
     pub gaming_fee: Uint128,
+    //The token we are placing the bet with
     pub token_denom: String,
+    //What are we betting against
+    pub bet_token_denom: String,
+    pub dev_wallet_list: Vec<WalletInfo>,
 }
 
 #[cw_serde]
@@ -49,7 +52,7 @@ pub struct LiveRound {
     pub bid_time: Timestamp,
     pub open_time: Timestamp,
     pub close_time: Timestamp,
-    pub open_price: Uint128,
+    pub open_price: Decimal,
     pub bull_amount: Uint128,
     pub bear_amount: Uint128,
 }
@@ -60,8 +63,8 @@ pub struct FinishedRound {
     pub bid_time: Timestamp,
     pub open_time: Timestamp,
     pub close_time: Timestamp,
-    pub open_price: Uint128,
-    pub close_price: Uint128,
+    pub open_price: Decimal,
+    pub close_price: Decimal,
     pub winner: Option<Direction>,
     pub bull_amount: Uint128,
     pub bear_amount: Uint128,
@@ -72,7 +75,7 @@ pub mod msg {
 
     #[cw_serde]
     pub struct MigrateMsg {}
-    
+
     #[cw_serde]
     pub struct InstantiateMsg {
         /* Mutable params */
@@ -115,11 +118,17 @@ pub mod msg {
         CollectionWinningRound {
             round_id: Uint128,
         },
-        DistributeFund {
-            dev_wallet_list: Vec<WalletInfo>,
-        },
-        Hault {},
+        Halt {},
         Resume {},
+        AddAdmin {
+            new_admin: Addr,
+        },
+        RemoveAdmin {
+            old_admin: Addr,
+        },
+        ModifyDevWallet {
+            new_dev_wallets: Vec<WalletInfo>,
+        },
     }
 
     #[cw_serde]
@@ -161,6 +170,8 @@ pub mod msg {
             start_after: Option<Uint128>,
             limit: Option<u32>,
         },
+        #[returns(AdminsResponse)]
+        GetAdmins {},
     }
 }
 
@@ -201,6 +212,11 @@ pub struct ClaimInfoResponse {
 #[cw_serde]
 pub struct PendingRewardResponse {
     pub pending_reward: Uint128,
+}
+
+#[cw_serde]
+pub struct AdminsResponse {
+    pub admins: Vec<Addr>,
 }
 
 #[cw_serde]
