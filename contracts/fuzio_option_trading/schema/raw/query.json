@@ -133,6 +133,27 @@
     {
       "type": "object",
       "required": [
+        "my_pending_reward_rounds"
+      ],
+      "properties": {
+        "my_pending_reward_rounds": {
+          "type": "object",
+          "required": [
+            "player"
+          ],
+          "properties": {
+            "player": {
+              "$ref": "#/definitions/Addr"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "get_users_per_round"
       ],
       "properties": {

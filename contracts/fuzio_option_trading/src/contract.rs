@@ -1,3 +1,5 @@
+use std::vec;
+
 use crate::error::ContractError;
 use crate::state::{
     bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ACCUMULATED_FEE, ADMINS,
@@ -7,7 +9,7 @@ use cw0::one_coin;
 use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use fuzio_bet::fuzio_option_trading::{
     AdminsResponse, BetInfo, ClaimInfo, ClaimInfoResponse, ConfigResponse, MyGameResponse,
-    PendingRewardResponse, RoundUsersResponse, WalletInfo,
+    PendingRewardResponse, PendingRewardRoundsResponse, RoundUsersResponse, WalletInfo,
 };
 use fuzio_bet::fuzio_option_trading::{Config, Direction};
 
@@ -543,6 +545,7 @@ pub fn query(deps: Deps<SeiQueryWrapper>, env: Env, msg: QueryMsg) -> StdResult<
             limit,
         } => to_binary(&query_my_games(deps, player, start_after, limit)?),
         QueryMsg::MyPendingReward { player } => to_binary(&query_my_pending_reward(deps, player)?),
+        QueryMsg::MyPendingRewardRounds { player } => to_binary(&query_my_pending_reward_rounds(deps, player)?),
         QueryMsg::GetUsersPerRound {
             round_id,
             start_after,
@@ -566,7 +569,7 @@ pub fn query(deps: Deps<SeiQueryWrapper>, env: Env, msg: QueryMsg) -> StdResult<
             start_after,
             limit,
         } => to_binary(&query_claim_info_by_user(deps, player, start_after, limit)?),
-        QueryMsg::GetAdmins {} => to_binary(&query_get_admins(deps)?),
+        QueryMsg::GetAdmins {} => to_binary(&query_get_admins(deps)?)
     }
 }
 
@@ -807,6 +810,70 @@ pub fn query_my_pending_reward(
 
     Ok(PendingRewardResponse {
         pending_reward: winnings,
+    })
+}
+
+pub fn query_my_pending_reward_rounds(
+    deps: Deps<SeiQueryWrapper>,
+    player: Addr,
+) -> StdResult<PendingRewardRoundsResponse> {
+    let my_game_list = query_my_games_without_limit(deps, player.clone())?;
+    let mut winnings = Uint128::zero();
+    let mut winnings_per_round: Vec<(Uint128, Uint128)> = vec![];
+
+    for game in my_game_list.my_game_list {
+        let round_id = game.round_id;
+        let round = ROUNDS.may_load(deps.storage, round_id.u128())?;
+
+        if round.is_none() {
+            continue;
+        }
+        let round = round.unwrap();
+
+        let pool_shares = round.bear_amount + round.bull_amount;
+
+        if round.bear_amount == Uint128::zero() || round.bull_amount == Uint128::zero() {
+            winnings += game.amount;
+            winnings_per_round.push((round_id, game.amount));
+        } else {
+            let round_winnings = match round.winner {
+                Some(Direction::Bull) => {
+                    /* Only claimable once */
+                    match game.direction {
+                        Direction::Bull => {
+                            let won_shares = game.amount;
+                            pool_shares.multiply_ratio(won_shares, round.bull_amount)
+                        }
+                        Direction::Bear => Uint128::zero(),
+                    }
+                }
+                Some(Direction::Bear) => {
+                    /* Only claimable once */
+                    match game.direction {
+                        Direction::Bull => Uint128::zero(),
+                        Direction::Bear => {
+                            let won_shares = game.amount;
+                            pool_shares.multiply_ratio(won_shares, round.bear_amount)
+                        }
+                    }
+                }
+                None => {
+                    /* Only claimable once */
+                    game.amount
+                }
+            };
+
+            /* Count it up */
+            winnings += round_winnings;
+            if round_winnings != Uint128::zero() {
+                winnings_per_round.push((round_id, round_winnings))
+            }
+        }
+    }
+
+    Ok(PendingRewardRoundsResponse {
+        pending_reward_rounds: winnings_per_round,
+        pending_reward_total: winnings,
     })
 }
 

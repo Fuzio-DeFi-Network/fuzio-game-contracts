@@ -150,6 +150,8 @@ pub mod msg {
         },
         #[returns(PendingRewardResponse)]
         MyPendingReward { player: Addr },
+        #[returns(PendingRewardRoundsResponse)]
+        MyPendingRewardRounds { player: Addr },
         #[returns(RoundUsersResponse)]
         GetUsersPerRound {
             round_id: Uint128,
@@ -212,6 +214,12 @@ pub struct ClaimInfoResponse {
 #[cw_serde]
 pub struct PendingRewardResponse {
     pub pending_reward: Uint128,
+}
+
+#[cw_serde]
+pub struct PendingRewardRoundsResponse {
+    pub pending_reward_rounds: Vec<(Uint128, Uint128)>,
+    pub pending_reward_total: Uint128,
 }
 
 #[cw_serde]
