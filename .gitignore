@@ -8,6 +8,7 @@
 target/
 artifacts/localsei.json
 artifacts/sei-chain.json
+artifacts/checksums*
 
 # IDEs
 .vscode/
