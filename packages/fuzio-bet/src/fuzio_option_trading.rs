@@ -172,6 +172,10 @@ pub mod msg {
             start_after: Option<Uint128>,
             limit: Option<u32>,
         },
+        #[returns(TotalSpentResponse)]
+        TotalSpent {
+            player: Addr,
+        },
         #[returns(AdminsResponse)]
         GetAdmins {},
     }
@@ -231,6 +235,11 @@ pub struct AdminsResponse {
 pub struct WalletInfo {
     pub address: Addr,
     pub ratio: Decimal,
+}
+
+#[cw_serde]
+pub struct TotalSpentResponse {
+    pub total_spent: Uint128,
 }
 
 #[cw_serde]

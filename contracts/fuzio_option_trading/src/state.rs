@@ -1,4 +1,4 @@
-use cosmwasm_std::Addr;
+use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::{Index, IndexList, IndexedMap, Item, Map, MultiIndex};
 use fuzio_bet::fuzio_option_trading::{BetInfoKey, BetInfo, ClaimInfoKey, ClaimInfo};
 use fuzio_bet::fuzio_option_trading::{Config, FinishedRound, LiveRound, NextRound};
@@ -16,6 +16,8 @@ pub const ACCUMULATED_FEE: Item<u128> = Item::new("accumulated_fee");
 pub const ROUNDS: Map<u128, FinishedRound> = Map::new("rounds");
 
 pub const ADMINS: Item<Vec<Addr>> = Item::new("admins");
+
+pub const TOTALS_SPENT: Map<Addr, Uint128> = Map::new("amounts_spent");
 
 /// Convenience bid key constructor
 pub fn bet_info_key(round_id: u128, player: &Addr) -> BetInfoKey {

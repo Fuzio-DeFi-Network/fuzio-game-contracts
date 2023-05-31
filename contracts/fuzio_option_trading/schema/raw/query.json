@@ -296,6 +296,27 @@
     {
       "type": "object",
       "required": [
+        "total_spent"
+      ],
+      "properties": {
+        "total_spent": {
+          "type": "object",
+          "required": [
+            "player"
+          ],
+          "properties": {
+            "player": {
+              "$ref": "#/definitions/Addr"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
         "get_admins"
       ],
       "properties": {

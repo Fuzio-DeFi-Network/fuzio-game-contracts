@@ -3,13 +3,14 @@ use std::vec;
 use crate::error::ContractError;
 use crate::state::{
     bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ACCUMULATED_FEE, ADMINS,
-    CONFIG, IS_HALTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS,
+    CONFIG, IS_HALTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS, TOTALS_SPENT,
 };
 use cw0::one_coin;
 use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use fuzio_bet::fuzio_option_trading::{
     AdminsResponse, BetInfo, ClaimInfo, ClaimInfoResponse, ConfigResponse, MyGameResponse,
-    PendingRewardResponse, PendingRewardRoundsResponse, RoundUsersResponse, WalletInfo,
+    PendingRewardResponse, PendingRewardRoundsResponse, RoundUsersResponse, TotalSpentResponse,
+    WalletInfo,
 };
 use fuzio_bet::fuzio_option_trading::{Config, Direction};
 
@@ -110,9 +111,15 @@ fn execute_collect_winnings(
     //     HashSet::from_iter(rounds.iter().cloned());
 
     let my_game_list = query_my_games_without_limit(deps.as_ref(), info.sender.clone())?;
+    let live_round = LIVE_ROUND.load(deps.storage)?;
 
     for game in my_game_list.my_game_list {
         let round_id = game.round_id;
+
+        if live_round.id == round_id {
+            continue;
+        }
+
         let round = ROUNDS.load(deps.storage, round_id.u128())?;
 
         let pool_shares = round.bear_amount + round.bull_amount;
@@ -317,6 +324,15 @@ fn execute_bet(
     let config = CONFIG.load(deps.storage)?;
 
     let funds_sent = one_coin(&info)?;
+
+    let totals = TOTALS_SPENT.may_load(deps.storage, info.clone().sender)?;
+
+    if totals.is_none() {
+        TOTALS_SPENT.save(deps.storage, info.clone().sender, &funds_sent.amount)?;
+    } else {
+        let new_totals = totals.unwrap() + funds_sent.amount;
+        TOTALS_SPENT.save(deps.storage, info.clone().sender, &new_totals)?;
+    }
 
     if funds_sent.denom != config.token_denom {
         return Err(ContractError::InvalidFunds {});
@@ -545,7 +561,9 @@ pub fn query(deps: Deps<SeiQueryWrapper>, env: Env, msg: QueryMsg) -> StdResult<
             limit,
         } => to_binary(&query_my_games(deps, player, start_after, limit)?),
         QueryMsg::MyPendingReward { player } => to_binary(&query_my_pending_reward(deps, player)?),
-        QueryMsg::MyPendingRewardRounds { player } => to_binary(&query_my_pending_reward_rounds(deps, player)?),
+        QueryMsg::MyPendingRewardRounds { player } => {
+            to_binary(&query_my_pending_reward_rounds(deps, player)?)
+        }
         QueryMsg::GetUsersPerRound {
             round_id,
             start_after,
@@ -569,7 +587,8 @@ pub fn query(deps: Deps<SeiQueryWrapper>, env: Env, msg: QueryMsg) -> StdResult<
             start_after,
             limit,
         } => to_binary(&query_claim_info_by_user(deps, player, start_after, limit)?),
-        QueryMsg::GetAdmins {} => to_binary(&query_get_admins(deps)?)
+        QueryMsg::TotalSpent { player } => to_binary(&query_total_spent(deps, player)?),
+        QueryMsg::GetAdmins {} => to_binary(&query_get_admins(deps)?),
     }
 }
 
@@ -957,7 +976,18 @@ pub fn query_my_games_without_limit(
     Ok(MyGameResponse { my_game_list })
 }
 
-fn query_get_admins(deps: Deps<SeiQueryWrapper>) -> StdResult<AdminsResponse> {
+pub fn query_total_spent(
+    deps: Deps<SeiQueryWrapper>,
+    player: Addr,
+) -> StdResult<TotalSpentResponse> {
+    let total = TOTALS_SPENT.may_load(deps.storage, player)?;
+
+    Ok(TotalSpentResponse {
+        total_spent: total.unwrap_or(Uint128::zero()),
+    })
+}
+
+pub fn query_get_admins(deps: Deps<SeiQueryWrapper>) -> StdResult<AdminsResponse> {
     let admins = ADMINS.load(deps.storage)?;
 
     Ok(AdminsResponse { admins })
