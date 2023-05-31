@@ -1,12 +1,12 @@
-# Fuzio Option Trading
+# Fuzio Games Contracts
 
-Fuzio option trading game with fuzion native token (generated with token factory) on sei network and using sei network oracle to retrieve price data.
+Repository that will contain all games
 
 ## General Contracts
 
 | Name                                   | Description             |
 | -------------------------------------- | ----------------------- |
-| [`fuzio_option_trading`](contracts/fuzio_option_trading)   | Option Trading contract |
+| [`fuzio_option_trading`](contracts/fuzio_option_trading)   | Prediction contract |
 
 ## Building Contracts
 
