@@ -1,8 +1,8 @@
 [package]
 name = "fuzio-bet"
 version = "0.1.0"
-authors = [ "Deliver DAO" ]
-edition = "2018"
+authors = ["Keyne"]
+edition = "2021"
 
 [dependencies]
 cosmwasm-schema = "1.2.5"

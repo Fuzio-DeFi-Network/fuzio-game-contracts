@@ -1,8 +1,8 @@
 # Fuzio Games Contracts
 
-Repository that will contain all games
+Repository that will contain all Fuzio games
 
-## General Contracts
+## Contracts
 
 | Name                                   | Description             |
 | -------------------------------------- | ----------------------- |

@@ -9,6 +9,7 @@ version       = "0.1.0"
 edition       = "2021"
 repository    = "https://github.com/Fuzio-DeFi-Network/Fuzio-OptionsTrading-SC"
 rust-version  = "1.68.1"
+authors = ["Keyne"]
 
 [profile.release]
 opt-level = 3
