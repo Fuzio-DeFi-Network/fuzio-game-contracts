@@ -1,7 +1,8 @@
 [package]
 name = "fuzio_option_trading"
 version = "1.0.0"
-edition = "2018"
+edition = "2021"
+authors = ["Keyne"]
 description = "Cosmwasm AMM"
 license = "Apache-2.0"
 
