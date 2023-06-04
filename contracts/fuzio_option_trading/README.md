@@ -1,6 +1,6 @@
 # Fuzio Option Trading
 
-This is a contract that will run the Fuzio Prediction games. They take advantage of the Sei oracle to get price information of an asset and allows people to bet if the price of a certain asset will go up or down in the next X minutes. After the game is finished, the users that got the right prediction will receive part of the total pot (according to their share of the total bet).
+This is a contract that will run the Fuzio Prediction games. It's originally based on the contracts made by DeliverDAO. They take advantage of the Sei oracle to get price information of an asset and allows people to bet if the price of a certain asset will go up or down in the next X minutes. After the game is finished, the users that got the right prediction will receive part of the total pot (according to their share of the total bet).
 
 Each contract will be 1 prediction game, and we will provide the rounds duration, the gaming fee (% sent to dev wallets), the token that we are betting against, and the token that we will use as bet currency and prize reward.
 
