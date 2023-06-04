@@ -107,9 +107,6 @@ fn execute_collect_winnings(
     let mut winnings = Uint128::zero();
     let resp = Response::new();
 
-    // let no_duplicate_rounds: HashSet<u128> =
-    //     HashSet::from_iter(rounds.iter().cloned());
-
     let my_game_list = query_my_games_without_limit(deps.as_ref(), info.sender.clone())?;
     let live_round = LIVE_ROUND.load(deps.storage)?;
 
@@ -213,8 +210,6 @@ fn execute_collect_winning_round(
     let mut winnings = Uint128::zero();
     let resp = Response::new();
 
-    // let no_duplicate_rounds: HashSet<u128> =
-    //     HashSet::from_iter(rounds.iter().cloned());
     let mut my_game_list: Vec<BetInfo> = Vec::new();
 
     let bet_info_key_round = bet_info_key(round_id.u128(), &info.sender);
