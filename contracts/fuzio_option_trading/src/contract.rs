@@ -197,7 +197,7 @@ fn execute_collect_winnings(
 
     Ok(resp
         .add_message(msg_send_winnings)
-        .add_attribute("action", "collect-winnings")
+        .add_attribute("action", "fuzio-collect-winnings")
         .add_attribute("amount", winnings))
 }
 
@@ -300,7 +300,8 @@ fn execute_collect_winning_round(
 
     Ok(resp
         .add_message(msg_send_winnings)
-        .add_attribute("action", "collect-winnings")
+        .add_attribute("action", "fuzio-collect-winnings-round")
+        .add_attribute("round_id", round_id)
         .add_attribute("amount", winnings))
 }
 
@@ -380,14 +381,13 @@ fn execute_bet(
             )?;
             bet_round.bull_amount += bet_amt;
             NEXT_ROUND.save(deps.storage, &bet_round)?;
-            resp = resp.add_event(Event::new("fuzio_bet").add_attributes(vec![
-                ("action", "fuzio-bet".to_string()),
-                ("round", round_id.to_string()),
-                ("direction", "bull".to_string()),
-                ("amount", bet_amt.to_string()),
-                ("round_bull_total", bet_round.bull_amount.to_string()),
-                ("account", info.sender.to_string()),
-            ]));
+            resp = resp
+                .add_attribute("action", "fuzio-bet".to_string())
+                .add_attribute("round", round_id.to_string())
+                .add_attribute("direction", "bull".to_string())
+                .add_attribute("amount", bet_amt.to_string())
+                .add_attribute("round_bear_total", bet_round.bear_amount.to_string())
+                .add_attribute("account", info.sender.to_string());
         }
         Direction::Bear => {
             bet_info_storage().save(
@@ -402,14 +402,13 @@ fn execute_bet(
             )?;
             bet_round.bear_amount += bet_amt;
             NEXT_ROUND.save(deps.storage, &bet_round)?;
-            resp = resp.add_event(Event::new("fuzio_bet").add_attributes(vec![
-                ("action", "fuzio-bet".to_string()),
-                ("round", round_id.to_string()),
-                ("direction", "bear".to_string()),
-                ("amount", bet_amt.to_string()),
-                ("round_bear_total", bet_round.bear_amount.to_string()),
-                ("account", info.sender.to_string()),
-            ]));
+            resp = resp
+                .add_attribute("action", "fuzio-bet".to_string())
+                .add_attribute("round", round_id.to_string())
+                .add_attribute("direction", "bear".to_string())
+                .add_attribute("amount", bet_amt.to_string())
+                .add_attribute("round_bear_total", bet_round.bear_amount.to_string())
+                .add_attribute("account", info.sender.to_string());
         }
     }
 
@@ -447,20 +446,19 @@ fn execute_close_round(
             if now >= live_round.close_time {
                 let finished_round = compute_round_close(deps.as_ref(), live_round)?;
                 ROUNDS.save(deps.storage, live_round.id.u128(), &finished_round)?;
-
-                resp = resp.add_event(Event::new("fuzio_bet").add_attributes(vec![
-                    ("round_dead", live_round.id.to_string()),
-                    ("close_price", finished_round.close_price.to_string()),
-                    (
+                resp = resp
+                    .add_attribute("action", "fuzio-finished-round")
+                    .add_attribute("round_id", live_round.id.to_string())
+                    .add_attribute("close_price", finished_round.close_price.to_string())
+                    .add_attribute(
                         "winner",
                         match finished_round.winner {
                             Some(w) => w.to_string(),
                             None => "everybody".to_string(),
                         },
-                    ),
-                ]));
+                    );
                 LIVE_ROUND.remove(deps.storage);
-                resp = resp.add_attribute("action", "distribute_rewards");
+                resp = resp.add_attribute("action", "fuzio-distribute-dev-rewards");
                 if collected_fee != 0 {
                     resp = resp.add_messages(messages);
                 }
@@ -504,29 +502,29 @@ fn execute_close_round(
         Some(open_round) => {
             if LIVE_ROUND.may_load(deps.storage)?.is_none() && now >= open_round.open_time {
                 let live_round = compute_round_open(deps.as_ref(), env.clone(), open_round)?;
-                resp = resp.add_event(Event::new("fuzio_bet").add_attributes(vec![
-                    ("round_bidding_close", live_round.id.to_string()),
-                    ("open_price", live_round.open_price.to_string()),
-                    ("bear_amount", live_round.bear_amount.to_string()),
-                    ("bull_amount", live_round.bull_amount.to_string()),
-                ]));
+                resp = resp
+                    .add_attribute("action", "fuzio-bidding-close")
+                    .add_attribute("round_id", live_round.id.to_string())
+                    .add_attribute("open_price", live_round.open_price.to_string())
+                    .add_attribute("bear_amount", live_round.bear_amount.to_string())
+                    .add_attribute("bull_amount", live_round.bull_amount.to_string());
                 LIVE_ROUND.save(deps.storage, &live_round)?;
                 NEXT_ROUND.remove(deps.storage);
                 let new_round_id = new_bid_round(deps, env)?;
-                resp = resp.add_event(
-                    Event::new("fuzio_bet").add_attribute("round_bidding_open", new_round_id),
-                );
+                resp = resp
+                    .add_attribute("action", "fuzio-new-round")
+                    .add_attribute("round_id", new_round_id);
             }
         }
         None => {
             let new_round_id = new_bid_round(deps, env)?;
-            resp = resp.add_event(
-                Event::new("fuzio_bet").add_attribute("round_bidding_open", new_round_id),
-            );
+            resp = resp
+                .add_attribute("action", "fuzio-new-round")
+                .add_attribute("round_id", new_round_id);
         }
     }
 
-    Ok(resp.add_attribute("action", "close-round"))
+    Ok(resp)
 }
 
 fn execute_update_config(
