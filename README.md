@@ -6,7 +6,7 @@ Repository that will contain all Fuzio games
 
 | Name                                   | Description             |
 | -------------------------------------- | ----------------------- |
-| [`fuzio_option_trading`](contracts/fuzio_option_trading)   | Prediction contract |
+| [`fuzio_prediction_game`](contracts/fuzio_prediction_game)   | Prediction contract |
 
 ## Building Contracts
 

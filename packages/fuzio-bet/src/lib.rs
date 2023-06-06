@@ -1,2 +1,2 @@
 //members
-pub mod fuzio_option_trading;
+pub mod fuzio_prediction_game;
