@@ -1,5 +1,5 @@
 use cosmwasm_schema::write_api;
-use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
+use fuzio_bet::fuzio_prediction_game::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
 
 fn main() {
     write_api! {

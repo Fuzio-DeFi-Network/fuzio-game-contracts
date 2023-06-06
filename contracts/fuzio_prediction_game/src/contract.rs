@@ -2,17 +2,17 @@ use std::vec;
 
 use crate::error::ContractError;
 use crate::state::{
-    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ACCUMULATED_FEE, ADMINS,
-    CONFIG, IS_HALTED, LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS, TOTALS_SPENT,
+    bet_info_key, bet_info_storage, claim_info_key, claim_info_storage, ADMINS, CONFIG, IS_HALTED,
+    LIVE_ROUND, NEXT_ROUND, NEXT_ROUND_ID, ROUNDS, TOTALS_SPENT,
 };
 use cw0::one_coin;
-use fuzio_bet::fuzio_option_trading::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
-use fuzio_bet::fuzio_option_trading::{
+use fuzio_bet::fuzio_prediction_game::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
+use fuzio_bet::fuzio_prediction_game::{
     AdminsResponse, BetInfo, ClaimInfo, ClaimInfoResponse, ConfigResponse, MyGameResponse,
     PendingRewardResponse, PendingRewardRoundsResponse, RoundUsersResponse, TotalSpentResponse,
     WalletInfo,
 };
-use fuzio_bet::fuzio_option_trading::{Config, Direction};
+use fuzio_bet::fuzio_prediction_game::{Config, Direction};
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
@@ -21,15 +21,15 @@ use cosmwasm_std::{
     Order, Response, StdError, StdResult, Uint128,
 };
 use cw_storage_plus::Bound;
-use fuzio_bet::fuzio_option_trading::{FinishedRound, LiveRound, NextRound, FEE_PRECISION};
-use fuzio_bet::fuzio_option_trading::{MyCurrentPositionResponse, StatusResponse};
+use fuzio_bet::fuzio_prediction_game::{FinishedRound, LiveRound, NextRound, FEE_PRECISION};
+use fuzio_bet::fuzio_prediction_game::{MyCurrentPositionResponse, StatusResponse};
 use sei_cosmwasm::{ExchangeRatesResponse, SeiQuerier, SeiQueryWrapper};
 
 // Query limits
 const DEFAULT_QUERY_LIMIT: u32 = 10;
 const MAX_QUERY_LIMIT: u32 = 30;
 
-const CONTRACT_NAME: &str = "fuzio_option_trading";
+const CONTRACT_NAME: &str = env!("CARGO_PKG_NAME");
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -52,7 +52,6 @@ pub fn instantiate(
 
     CONFIG.save(deps.storage, &msg.config)?;
     NEXT_ROUND_ID.save(deps.storage, &0u128)?;
-    ACCUMULATED_FEE.save(deps.storage, &0u128)?;
     IS_HALTED.save(deps.storage, &false)?;
     ADMINS.save(deps.storage, &vec![info.sender])?;
 
@@ -105,10 +104,11 @@ fn execute_collect_winnings(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut winnings = Uint128::zero();
-    let resp = Response::new();
+    let mut resp = Response::new();
 
     let my_game_list = query_my_games_without_limit(deps.as_ref(), info.sender.clone())?;
     let live_round = LIVE_ROUND.load(deps.storage)?;
+    let mut amount_commissionable = Uint128::zero();
 
     for game in my_game_list.my_game_list {
         let round_id = game.round_id;
@@ -169,6 +169,7 @@ fn execute_collect_winnings(
 
             /* Count it up */
             winnings += round_winnings;
+            amount_commissionable += round_winnings;
 
             if round_winnings > Uint128::zero() {
                 claim_info_storage().save(
@@ -190,15 +191,33 @@ fn execute_collect_winnings(
         )));
     }
 
+    let mut dev_fee = Uint128::zero();
+    if amount_commissionable != Uint128::zero() {
+        dev_fee = compute_gaming_fee(deps.as_ref(), amount_commissionable)?;
+        let mut messages_dev_fees = Vec::new();
+        for dev_wallet in config.clone().dev_wallet_list {
+            let token_transfer_msg = BankMsg::Send {
+                to_address: dev_wallet.address.to_string(),
+                amount: coins((dev_fee * dev_wallet.ratio).u128(), &config.token_denom),
+            };
+            messages_dev_fees.push(token_transfer_msg)
+        }
+        resp = resp
+            .add_messages(messages_dev_fees)
+            .add_attribute("action", "fuzio-distribute-dev-rewards")
+            .add_attribute("amount", dev_fee);
+    }
+
+    let amount_winnings = winnings.u128() - dev_fee.u128();
     let msg_send_winnings = BankMsg::Send {
         to_address: info.sender.to_string(),
-        amount: coins(winnings.u128(), &config.token_denom),
+        amount: coins(amount_winnings, &config.token_denom),
     };
 
     Ok(resp
         .add_message(msg_send_winnings)
         .add_attribute("action", "fuzio-collect-winnings")
-        .add_attribute("amount", winnings))
+        .add_attribute("amount", amount_winnings.to_string()))
 }
 
 fn execute_collect_winning_round(
@@ -208,7 +227,7 @@ fn execute_collect_winning_round(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut winnings = Uint128::zero();
-    let resp = Response::new();
+    let mut resp = Response::new();
 
     let mut my_game_list: Vec<BetInfo> = Vec::new();
 
@@ -218,6 +237,8 @@ fn execute_collect_winning_round(
         Some(_game) => my_game_list.push(_game),
         None => {}
     }
+
+    let mut amount_commissionable = Uint128::zero();
 
     for game in my_game_list {
         let round_id = game.round_id;
@@ -273,6 +294,7 @@ fn execute_collect_winning_round(
 
             /* Count it up */
             winnings += round_winnings;
+            amount_commissionable += round_winnings;
             if round_winnings > Uint128::zero() {
                 claim_info_storage().save(
                     deps.storage,
@@ -293,16 +315,34 @@ fn execute_collect_winning_round(
         )));
     }
 
+    let mut dev_fee = Uint128::zero();
+    if amount_commissionable != Uint128::zero() {
+        dev_fee = compute_gaming_fee(deps.as_ref(), amount_commissionable)?;
+        let mut messages_dev_fees = Vec::new();
+        for dev_wallet in config.clone().dev_wallet_list {
+            let token_transfer_msg = BankMsg::Send {
+                to_address: dev_wallet.address.to_string(),
+                amount: coins((dev_fee * dev_wallet.ratio).u128(), &config.token_denom),
+            };
+            messages_dev_fees.push(token_transfer_msg)
+        }
+        resp = resp
+            .add_messages(messages_dev_fees)
+            .add_attribute("action", "fuzio-distribute-dev-rewards")
+            .add_attribute("amount", dev_fee);
+    }
+
+    let amount_winnings = winnings.u128() - dev_fee.u128();
     let msg_send_winnings = BankMsg::Send {
         to_address: info.sender.to_string(),
-        amount: coins(winnings.u128(), &config.token_denom),
+        amount: coins(amount_winnings, &config.token_denom),
     };
 
     Ok(resp
         .add_message(msg_send_winnings)
         .add_attribute("action", "fuzio-collect-winnings-round")
         .add_attribute("round_id", round_id)
-        .add_attribute("amount", winnings))
+        .add_attribute("amount", amount_winnings.to_string()))
 }
 
 fn execute_bet(
@@ -346,14 +386,6 @@ fn execute_bet(
         ))));
     }
 
-    let staker_fee = compute_gaming_fee(deps.as_ref(), gross)?;
-    ACCUMULATED_FEE.update(deps.storage, |fee_before| -> Result<u128, StdError> {
-        Ok(fee_before + staker_fee.u128())
-    })?;
-
-    /* Deduct open from the gross amount */
-    let bet_amt = gross - staker_fee;
-
     let bet_info_key = bet_info_key(round_id.u128(), &info.sender.clone());
 
     let bet_info = bet_info_storage().may_load(deps.storage, bet_info_key.clone())?;
@@ -368,24 +400,23 @@ fn execute_bet(
 
     match dir {
         Direction::Bull => {
-            // BULL_BETS.save(deps.storage, bet_key, &bet_amt.u128())?;
             bet_info_storage().save(
                 deps.storage,
                 bet_info_key.clone(),
                 &BetInfo {
                     player: info.sender.clone(),
                     round_id,
-                    amount: bet_amt,
+                    amount: gross,
                     direction: Direction::Bull,
                 },
             )?;
-            bet_round.bull_amount += bet_amt;
+            bet_round.bull_amount += gross;
             NEXT_ROUND.save(deps.storage, &bet_round)?;
             resp = resp
                 .add_attribute("action", "fuzio-bet".to_string())
                 .add_attribute("round", round_id.to_string())
                 .add_attribute("direction", "bull".to_string())
-                .add_attribute("amount", bet_amt.to_string())
+                .add_attribute("amount", gross.to_string())
                 .add_attribute("round_bear_total", bet_round.bear_amount.to_string())
                 .add_attribute("account", info.sender.to_string());
         }
@@ -396,17 +427,17 @@ fn execute_bet(
                 &BetInfo {
                     player: info.sender.clone(),
                     round_id,
-                    amount: bet_amt,
+                    amount: gross,
                     direction: Direction::Bear,
                 },
             )?;
-            bet_round.bear_amount += bet_amt;
+            bet_round.bear_amount += gross;
             NEXT_ROUND.save(deps.storage, &bet_round)?;
             resp = resp
                 .add_attribute("action", "fuzio-bet".to_string())
                 .add_attribute("round", round_id.to_string())
                 .add_attribute("direction", "bear".to_string())
-                .add_attribute("amount", bet_amt.to_string())
+                .add_attribute("amount", gross.to_string())
                 .add_attribute("round_bear_total", bet_round.bear_amount.to_string())
                 .add_attribute("account", info.sender.to_string());
         }
@@ -423,22 +454,6 @@ fn execute_close_round(
     let now = env.block.time;
     let config = CONFIG.load(deps.storage)?;
     let mut resp: Response = Response::new();
-
-    let collected_fee = ACCUMULATED_FEE.load(deps.storage)?;
-    let mut messages = Vec::new();
-
-    if collected_fee != 0 {
-        for dev_wallet in config.clone().dev_wallet_list {
-            let token_transfer_msg = BankMsg::Send {
-                to_address: dev_wallet.address.to_string(),
-                amount: coins(
-                    (Uint128::new(collected_fee) * dev_wallet.ratio).u128(),
-                    &config.token_denom,
-                ),
-            };
-            messages.push(token_transfer_msg)
-        }
-    }
 
     let maybe_live_round = LIVE_ROUND.may_load(deps.storage)?;
     match &maybe_live_round {
@@ -458,11 +473,6 @@ fn execute_close_round(
                         },
                     );
                 LIVE_ROUND.remove(deps.storage);
-                resp = resp.add_attribute("action", "fuzio-distribute-dev-rewards");
-                if collected_fee != 0 {
-                    resp = resp.add_messages(messages);
-                }
-                ACCUMULATED_FEE.save(deps.storage, &0u128)?;
             }
         }
         None => {}

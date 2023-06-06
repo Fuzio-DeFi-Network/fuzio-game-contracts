@@ -2,4 +2,4 @@ pub mod contract;
 pub mod error;
 pub mod state;
 
-pub use fuzio_bet::fuzio_option_trading::*;
+pub use fuzio_bet::fuzio_prediction_game::*;
